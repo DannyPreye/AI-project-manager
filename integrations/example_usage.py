@@ -19,7 +19,7 @@ llm = LLM(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
 trello_manager = Agent(
     role="Trello Project Manager",
     goal="Set up Trello boards and organize project tasks",
-    backstory="""You are an expert project manager who uses Trello to organize work. 
+    backstory="""You are an expert project manager who uses Trello to organize work.
     You create well-structured boards with clear lists and detailed cards for each task.""",
     tools=[create_board_tool, create_list_tool, create_card_tool],
     llm=llm,
@@ -62,19 +62,19 @@ def example_with_research_output(research_findings: str, team_members: list):
     task = Task(
         description=f"""
         Based on the following research findings, create a Trello board to manage the project:
-        
+
         {research_findings}
-        
+
         Team Members:
         {team_members}
-        
+
         Your tasks:
         1. Create a Trello board with an appropriate name based on the project
         2. Create lists for different phases of work (e.g., 'Planning', 'Design', 'Development', 'Testing', 'Deployment')
         3. Create cards for the key deliverables and tasks identified in the research
         4. Assign cards to appropriate team members based on their skills
         5. Set due dates based on the project timeline
-        
+
         Provide a summary of what you created with all IDs.
         """,
         agent=trello_manager,
@@ -92,7 +92,7 @@ def example_sprint_board():
     task = Task(
         description="""
         Create a Trello board for 'Sprint 1 - User Authentication'.
-        
+
         Create these lists:
         - Sprint Backlog
         - To Do
@@ -100,7 +100,7 @@ def example_sprint_board():
         - Code Review
         - Testing
         - Done
-        
+
         Add these cards to Sprint Backlog:
         1. 'Set up authentication database schema' - due 2025-11-15 - assign to Alice Smith
         2. 'Implement JWT token generation' - due 2025-11-18 - assign to Bob Johnson
