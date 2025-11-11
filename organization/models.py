@@ -10,7 +10,7 @@ from uuid import uuid4
 class Organization(models.Model):
     id = models.UUIDField(default=uuid4, editable=False, unique=True, primary_key=True)
     name = models.CharField(max_length=255)
-    description = models.TextField()
+    description = models.TextField( null=True, blank=True)
     admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='administered_organizations')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

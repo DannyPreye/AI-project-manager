@@ -7,6 +7,7 @@ from organization.models import Organization
 class Project(models.Model):
     id = models.UUIDField(default=uuid4, editable=False, unique=True, primary_key=True)
     name = models.CharField(max_length=255)
+    industry = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

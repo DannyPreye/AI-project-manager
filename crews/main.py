@@ -3,9 +3,9 @@ from crewai.flow import Flow, start, listen
 from pydantic import BaseModel
 from typing import Optional
 
-from research_crew import research_crew
-from planning_crew import planning_crew
-from execution_crew import execution_crew
+from .research_crew import research_crew
+from .planning_crew import planning_crew
+from .execution_crew import execution_crew
 
 # Import Trello integration for board creation
 from integrations.trello import TrelloIntegration, TeamMember

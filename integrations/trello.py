@@ -16,6 +16,7 @@ class TeamMember(BaseModel):
 
 
 trello = TrelloApi(getenv("TRELLO_API_KEY"))
+trello.set_token(getenv("TRELLO_API_TOKEN"))
 
 class TrelloIntegration:
     def create_board(self, board_name: str, description, team_members: list[TeamMember]):
@@ -26,6 +27,15 @@ class TrelloIntegration:
         # update the database model with the member id
         return board
 
+    def invite_team_members(self, board_id:str, team_members: list[TeamMember]):
+
+        for member in team_members:
+
+            result = trello.boards.update_member (board_id, email=member["email"], fullName=member["name"], type="normal")
+            member["id"] = result["id"]
+            # update the database model with the member id
+
+        return True
     def update_board(self, board_id:str, board_name:str, description:str):
         board = trello.boards.update(board_id, name=board_name, desc=description)
         return board

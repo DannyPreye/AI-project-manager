@@ -1,10 +1,12 @@
-from time import timezone
+# from datetime import datetime
+from django.utils import timezone
 import uuid
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import Organization, OrganizationMember, UserToken, User
+from .models import Organization, UserToken, User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.core.mail import EmailMessage
+from django.conf import settings
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -54,11 +56,25 @@ class RegisterUserSerializer(serializers.ModelSerializer):
             last_name=validated_data['last_name'],
         )
 
-        organization = Organization.objects.create(name=validated_data['organization_name'])
-        organization.admin = user
+        organization = Organization.objects.create(name=validated_data['organization_name'], admin=user)
         organization.save()
         user.organization = organization
         user.save()
+
+        # Send verification email to the user
+        new_token = UserToken.objects.create(user=user, token=uuid.uuid4())
+        verification_url = f"http://localhost:3000/verify-email/{new_token.token}"
+        self.send_verification_email(user, verification_url)
+
+    def send_verification_email(self, user, verification_url):
+        # send a verification email to the user using the email backend
+        email = EmailMessage(
+            'Verify your email',
+            'Click here to verify your email: ' + verification_url,
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+        )
+        email.send()
         return user
 
 
@@ -67,12 +83,13 @@ class VerifyEmailSerializer(serializers.Serializer):
     code = serializers.CharField()
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Email already exists")
+        if not User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email does not exist")
         return value
     def validate_code(self, value):
-        if UserToken.objects.filter(email=self.context['email'], token=value).exists():
-            user_token = UserToken.objects.get(email=self.context['email'], token=value)
+
+        if UserToken.objects.filter( token=value).exists():
+            user_token = UserToken.objects.get( token=value)
             if user_token.expires_at < timezone.now():
                 raise serializers.ValidationError("Code has expired")
             if user_token.is_validated:
@@ -83,11 +100,14 @@ class VerifyEmailSerializer(serializers.Serializer):
 
 
     def create(self, validated_data):
+        print("Validated data: ______", validated_data)
         user = User.objects.get(email=validated_data['email'])
+        print("User: ______", user)
         user.is_verified = True
         user.save()
+        code = validated_data['code']
         # delete the user token
-        UserToken.objects.filter(email=validated_data['email'], token=validated_data['code']).delete()
+        UserToken.objects.filter( token=code).delete()
         return user
 
 

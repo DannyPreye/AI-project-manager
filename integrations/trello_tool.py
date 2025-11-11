@@ -1,4 +1,4 @@
-from crewai_tools import BaseTool
+from crewai.tools import BaseTool
 from typing import Type, Optional
 from pydantic import BaseModel, Field
 from .trello import TrelloIntegration, TeamMember

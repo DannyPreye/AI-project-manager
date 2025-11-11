@@ -14,12 +14,15 @@ schema_view = get_schema_view(
         license=openapi.License(name="BSD License"),
     ),
     public=True,
-    permission_classes=(permissions.AllowAny,),
+
 )
+
+api_path="api/v1/"
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/", include("organization.urls")),
+    path(f"{api_path}organization/", include("organization.urls")),
+    path(f"{api_path}project/", include("project.urls")),
 
     # path("swagger<format>/", schema_view.without_ui(cache_timeout=0), name="schema-json"),
     path("swagger/", schema_view.with_ui("swagger", cache_timeout=0), name="schema-swagger-ui"),
