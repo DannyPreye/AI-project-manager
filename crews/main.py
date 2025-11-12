@@ -46,6 +46,7 @@ class ProJectFlow(Flow[ProjectData]):
             inputs={
                 "research_output": research_output.raw,
                 "team_members": self.project_data["team_members"],
+                "project_timeline": self.project_data["project_timeline"],
             }
         )
         self.planning_output = planning_result.raw

@@ -4,6 +4,9 @@ from trello import TrelloApi
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
+
+from project.models import ProjectMember
+
 load_dotenv()
 
 
@@ -20,7 +23,7 @@ trello.set_token(getenv("TRELLO_API_TOKEN"))
 
 class TrelloIntegration:
     def create_board(self, board_name: str, description, team_members: list[TeamMember]):
-        board = trello.boards.new(name=board_name, desc=description)
+        board = trello.boards.new(name=board_name, desc=description,)
         # Invite all team members to the board
         # for member in team_members:
         #    memeber=  trello.boards.new_member(board.id, email=member.email, type="normal")
@@ -28,14 +31,41 @@ class TrelloIntegration:
         return board
 
     def invite_team_members(self, board_id:str, team_members: list[TeamMember]):
+        """
+        Invites team members to a Trello board and returns their Trello member IDs.
+        Returns a dict mapping email to trello_member_id for later use.
+        """
+        member_mapping = {}
 
         for member in team_members:
+            result = trello.boards.update_member(board_id, email=member["email"], fullName=member["name"], type="normal")
 
-            result = trello.boards.update_member (board_id, email=member["email"], fullName=member["name"], type="normal")
-            member["id"] = result["id"]
-            # update the database model with the member id
+            # Get the members list from the result
+            result_members = result["members"]
+            print(f"Board members after adding {member['name']}:", result_members, "\n")
 
-        return True
+            # Find the current member in the result
+            find_current_member = next(
+                (x for x in result_members if x["fullName"] == member["name"]),
+                None
+            )
+
+            if find_current_member:
+                # Store the mapping of email to Trello member ID
+                member_mapping[member["email"]] = find_current_member["id"]
+                print(f"✅ Successfully invited {member['name']} with Trello ID: {find_current_member['id']}")
+            else:
+                print(f"⚠️ Warning: Could not find member {member['name']} in Trello board members")
+                member_mapping[member["email"]] = None
+
+        return member_mapping
+    def get_team_members(self, board_id:str):
+        members = trello.boards.get_members(board_id)
+
+
+
+
+        return members
     def update_board(self, board_id:str, board_name:str, description:str):
         board = trello.boards.update(board_id, name=board_name, desc=description)
         return board
@@ -43,8 +73,9 @@ class TrelloIntegration:
        board = trello.boards.delete(board_id)
        return board
 
-    def create_list(self, board_id: str, list_name: str):
-        list = trello.lists.new(name=list_name, idBoard=board_id)
+    def create_list(self, board_id: str, list_name: str, position:int):
+        list = trello.lists.new(name=list_name, idBoard=board_id, pos=position)
+        print("list created: ", list)
         return list
     def update_list(self, list_id:str, list_name:str):
         list = trello.lists.update(list_id, name=list_name)

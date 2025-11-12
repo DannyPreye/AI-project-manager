@@ -26,6 +26,7 @@ class CreateListInput(BaseModel):
     """Input schema for creating a Trello list."""
     board_id: str = Field(..., description="The Trello board ID where the list will be created")
     list_name: str = Field(..., description="Name of the list (e.g., 'To Do', 'In Progress', 'Done')")
+    position: int = Field(default=1, description="Position of the list on the board (1 = leftmost, higher numbers go right)")
 
 
 class UpdateListInput(BaseModel):
@@ -175,9 +176,9 @@ class TrelloCreateListTool(BaseTool):
     Use this to create workflow stages like 'To Do', 'In Progress', 'Review', 'Done'."""
     args_schema: Type[BaseModel] = CreateListInput
 
-    def _run(self, board_id: str, list_name: str) -> str:
+    def _run(self, board_id: str, list_name: str, position: int = 1) -> str:
         try:
-            list_obj = trello_integration.create_list(board_id=board_id, list_name=list_name)
+            list_obj = trello_integration.create_list(board_id=board_id, list_name=list_name, position=position)
             return f"✅ Successfully created list '{list_name}' (ID: {list_obj['id']}) on board {board_id}"
         except Exception as e:
             return f"❌ Error creating list: {str(e)}"

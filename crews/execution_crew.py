@@ -5,7 +5,7 @@ import os
 
 load_dotenv()
 
-llm = LLM(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
+llm = LLM(model="gpt-4o", api_key=os.getenv("OPENAI_API_KEY"))
 
 # Get all Trello tools
 trello_tools = get_all_trello_tools()
@@ -18,36 +18,46 @@ trello_board_manager = Agent(
     backstory="""You are an expert at setting up Trello boards for software projects.
     You create well-organized board structures with clear workflow stages. You understand
     that a good board structure helps teams visualize progress and manage work efficiently.
-    You always create at least these standard lists: Backlog, To Do, In Progress, Review,
-    Testing, and Done.""",
+
+    IMPORTANT: After creating each list, you MUST extract and save the list ID from the
+    success message for use in subsequent tasks.""",
     tools=trello_tools,
     llm=llm,
-    verbose=True
+    verbose=True,
+    allow_delegation=False
 )
 
 trello_task_manager = Agent(
     role="Trello Task Creation Specialist",
-    goal="Transform project tasks into detailed Trello cards with checklists, labels, and proper assignments",
-    backstory="""You are a meticulous task manager who excels at breaking down project plans
-    into actionable Trello cards. You create detailed card descriptions, add comprehensive
-    checklists with acceptance criteria, assign appropriate team members, and set realistic
-    due dates. You use labels effectively to categorize tasks by priority and type. You never
-    create vague cards - every card has clear deliverables and success criteria.""",
+    goal="Transform ALL project tasks into Trello cards with exact dates from planning",
+    backstory="""You are a meticulous task manager who creates Trello cards for EVERY
+    task in the project plan. You NEVER skip tasks and you ALWAYS use the exact dates
+    provided in the planning output.
+
+    CRITICAL RULES:
+    1. Create a card for EVERY task in the planning output
+    2. Use the EXACT start_date and end_date from each task
+    3. DO NOT generate new dates - use what's in the plan
+    4. Work through tasks ONE AT A TIME
+    5. Keep count of tasks created vs total tasks
+    6. Complete each card fully (card → checklist → labels) before moving to next
+
+    You are thorough and never give up until ALL tasks are created.""",
     tools=trello_tools,
     llm=llm,
-    verbose=True
+    verbose=True,
+    allow_delegation=False
 )
 
 trello_workflow_organizer = Agent(
     role="Trello Workflow Organizer",
-    goal="Organize cards into appropriate lists and ensure proper task flow through the board",
-    backstory="""You understand project workflows and task dependencies. You organize cards
-    into the right lists based on their current status and dependencies. You ensure that
-    tasks flow logically through the board stages, and you move cards to appropriate lists
-    based on project phases and sprint planning.""",
+    goal="Verify all tasks were created and provide summary",
+    backstory="""You verify that the Trello board is complete and matches the plan.
+    You check that all tasks were created and provide a detailed report.""",
     tools=trello_tools,
     llm=llm,
-    verbose=True
+    verbose=True,
+    allow_delegation=False
 )
 
 
@@ -55,140 +65,224 @@ trello_workflow_organizer = Agent(
 
 create_board_structure_task = Task(
     description="""
-    Based on the project plan, create a comprehensive Trello board structure.
+    Create a Trello board structure by creating these lists in order:
 
-    Project Information: {project_name}
-    Board ID (already created): {board_id}
+    Board ID: {board_id}
 
-    Your tasks:
-    1. Create workflow lists on the board in this exact order:
-       - Backlog (for future work and ideas)
-       - To Do (ready to start)
-       - In Progress (actively being worked on)
-       - Code Review (awaiting review)
-       - Testing (QA in progress)
-       - Done (completed)
+    Use the "Create Trello List" tool to create each list with EXACT parameters:
 
-    2. If the project has sprints or phases, create additional lists for:
-       - Sprint Planning
-       - Sprint 1, Sprint 2, etc. (if mentioned in the plan)
+    1. board_id="{board_id}", list_name="Backlog", position=1
+    2. board_id="{board_id}", list_name="To Do", position=2
+    3. board_id="{board_id}", list_name="In Progress", position=3
+    4. board_id="{board_id}", list_name="Code Review", position=4
+    5. board_id="{board_id}", list_name="Testing", position=5
+    6. board_id="{board_id}", list_name="Done", position=6
 
-    Return ALL list IDs in a structured format:
+    AFTER creating ALL lists, extract each list ID from the success messages.
+
+    Success message format: "✅ Successfully created list 'To Do' (ID: 6731abc123456789)"
+    Extract: 6731abc123456789
+
+    Return ONLY a JSON object with the list IDs:
     {{
-        "backlog_list_id": "...",
-        "todo_list_id": "...",
-        "in_progress_list_id": "...",
-        "review_list_id": "...",
-        "testing_list_id": "...",
-        "done_list_id": "..."
+        "backlog_list_id": "extracted_id_1",
+        "todo_list_id": "extracted_id_2",
+        "in_progress_list_id": "extracted_id_3",
+        "review_list_id": "extracted_id_4",
+        "testing_list_id": "extracted_id_5",
+        "done_list_id": "extracted_id_6"
     }}
+
+    DO NOT add explanatory text. ONLY return the JSON object.
     """,
     agent=trello_board_manager,
-    expected_output="JSON object with all created list IDs and their names"
+    expected_output="JSON object containing all 6 list IDs with no additional text"
 )
 
 create_tasks_cards_task = Task(
     description="""
-    Transform the project planning output into detailed Trello cards.
+    Create Trello cards for EVERY task in the planning output. You MUST create ALL tasks.
 
     Planning Output: {planning_output}
-    Team Members: {team_members}
-    List IDs: list ids from the previous task
+    List IDs from previous task: {{output from previous task}}
 
-    For EACH task in the planning output, create a Trello card with:
+    STEP 1: PARSE THE PLANNING OUTPUT
 
-    1. **Card Name**: Clear, action-oriented task title
+    Extract the "tasks" array from the planning JSON. Count how many tasks there are.
+    Example: If planning has 20 tasks, you MUST create 20 cards.
 
-    2. **Description**: Include:
-       - Detailed task description
-       - Technical requirements
-       - Acceptance criteria (from planning output)
-       - Dependencies (mention which other tasks must be done first)
-       - Estimated effort
+    STEP 2: GET LIST IDs
 
-    3. **Checklist**: Create a checklist named "Acceptance Criteria" with items for:
-       - Each acceptance criterion from the planning output
-       - Testing requirements
-       - Documentation requirements
+    From the previous task output, extract:
+    - todo_list_id (for high priority tasks)
+    - backlog_list_id (for other tasks)
 
-    4. **Due Date**: Set the due date based on the timeline in the planning output
+    STEP 3: CREATE EACH CARD (DO THIS FOR EVERY TASK)
 
-    5. **Assign**: Assign to appropriate team member based on:
-       - Skills match (from team_members)
-       - The "assigned_to" field in the planning output
+    For task number 1 of X:
 
-    6. **Labels**: Create and add labels for:
-       - Priority level (Critical=red, High=orange, Medium=yellow, Low=green)
-       - Task type (Feature=blue, Bug=purple, Documentation=sky)
+    A) CREATE CARD
+       Tool: "Create Trello Card"
+       - list_id: Use todo_list_id if priority is "Critical" or "High", else backlog_list_id
+       - card_name: Use task "title" field from planning
+       - description: Use task "description" field from planning
+       - team_member_ids: "[]" (empty for now)
+       - start_date: Use EXACT "start_date" from task (format: "YYYY-MM-DD")
+       - end_date: Use EXACT "end_date" from task (format: "YYYY-MM-DD")
 
-    7. **List Placement**:
-       - High priority tasks that should start immediately → "To Do" list
-       - Lower priority or later phase tasks → "Backlog" list
-       - Tasks with unmet dependencies → "Backlog" list
+       CRITICAL: DO NOT make up dates. Use the dates from the planning output.
 
-    IMPORTANT: Process ALL tasks from the planning output. Don't skip any.
+    B) EXTRACT CARD ID
+       Success message: "✅ Successfully created card 'Task Name' (ID: 673abc123)"
+       Card ID: 673abc123
+       WRITE THIS DOWN
 
-    Return a summary with:
+    C) CREATE CHECKLIST
+       Tool: "Create Checklist on Card"
+       - card_id: The ID from step B
+       - checklist_name: "Acceptance Criteria"
+
+    D) EXTRACT CHECKLIST ID
+       Success message: "✅ Successfully created checklist 'Acceptance Criteria' (ID: abc123)"
+       Checklist ID: abc123
+
+    E) ADD CHECKLIST ITEMS
+       For EACH item in task's "acceptance_criteria" array:
+       Tool: "Add Item to Checklist"
+       - checklist_id: The ID from step D
+       - item_name: The acceptance criterion text
+
+    F) ADD PRIORITY LABEL
+       Tool: "Create Label"
+       - card_id: The ID from step B
+       - label_name: Use task "priority" field (e.g., "High Priority")
+       - color:
+         * "Critical" → "red"
+         * "High" → "orange"
+         * "Medium" → "yellow"
+         * "Low" → "green"
+
+    G) ADD CATEGORY LABEL
+       Tool: "Create Label"
+       - card_id: The ID from step B
+       - label_name: Use task "category" field (e.g., "Backend", "Frontend")
+       - color:
+         * "Backend" → "blue"
+         * "Frontend" → "purple"
+         * "Database" → "sky"
+         * "DevOps" → "lime"
+         * "Testing" → "pink"
+         * "Documentation" → "black"
+
+    STEP 4: TRACK PROGRESS
+
+    After completing steps A-G for task 1, move to task 2.
+    Keep count: "Created 1 of X tasks"
+
+    Repeat steps A-G for task 2, then task 3, etc.
+
+    DO NOT STOP until you've created ALL X tasks.
+
+    STEP 5: FINAL VERIFICATION
+
+    After processing all tasks, count:
     - Total cards created
-    - Cards in each list
-    - Any issues encountered
+    - Cards in "To Do" list
+    - Cards in "Backlog" list
+    - Cards with checklists
+    - Cards with labels
+
+    FINAL OUTPUT (must be valid JSON):
+    {{
+        "total_tasks_in_plan": X,
+        "total_cards_created": Y,
+        "cards_in_todo": Z,
+        "cards_in_backlog": W,
+        "all_card_ids": ["id1", "id2", "id3", ...],
+        "cards_with_checklists": Y,
+        "cards_with_labels": Y,
+        "verification": "Created Y of X tasks (100% complete)" or "WARNING: Only created Y of X tasks"
+    }}
+
+    CRITICAL REMINDERS:
+    - Create a card for EVERY task in the planning output
+    - Use EXACT dates from planning (start_date and end_date fields)
+    - DO NOT skip tasks
+    - DO NOT generate new dates
+    - Complete each card fully before moving to next
+    - Track your progress: "Task 5 of 20..."
     """,
     agent=trello_task_manager,
-    expected_output="""Detailed summary of all created cards including:
-    - Total number of cards created
-    - Breakdown by list (how many in each)
-    - Breakdown by priority
-    - Any team member without assignments
-    - List of card IDs created""",
+    expected_output="""JSON summary with total_tasks_in_plan, total_cards_created, verification status,
+    all_card_ids array, and counts for checklists and labels. Must show if all tasks were created.""",
     context=[create_board_structure_task]
 )
 
 organize_workflow_task = Task(
     description="""
-    Review and organize the created Trello board for optimal workflow.
+    Verify the Trello board setup and check completeness.
 
-    List IDs: list ids from the previous task
-    Created Cards Summary: [from previous task]
+    Board ID: {board_id}
+    Planning Output: {planning_output}
+    Execution Results: {{output from previous task}}
 
-    Your tasks:
+    VERIFICATION CHECKLIST:
 
-    1. **Review Card Distribution**:
-       - Check that high-priority, no-dependency tasks are in "To Do"
-       - Ensure dependent tasks are in "Backlog" until dependencies are met
-       - Verify cards are not overloaded in any single list
+    1. **Task Completeness Check**:
+       - How many tasks were in the planning output?
+       - How many cards were created?
+       - Percentage complete: (cards created / tasks in plan) × 100%
+       - If < 100%, list which tasks are missing
 
-    2. **Verify Assignments**:
-       - Check that workload is balanced across team members
-       - Identify any team members with no tasks
-       - Identify any team members with too many tasks
+    2. **Lists Summary**:
+       - Total lists: 6
+       - List names: Backlog, To Do, In Progress, Code Review, Testing, Done
 
-    3. **Check Dependencies**:
-       - Review cards in "To Do" and ensure they have no blocking dependencies
-       - Move any blocked tasks back to "Backlog"
+    3. **Cards Summary**:
+       - Total cards created
+       - Cards in "To Do" list (high priority)
+       - Cards in "Backlog" list (other)
+       - Cards in other lists (should be 0 initially)
 
-    4. **Add Sprint Organization** (if applicable):
-       - If the project has sprints, organize tasks into sprint lists
-       - Move Sprint 1 tasks to "To Do" or "In Progress" as appropriate
+    4. **Quality Metrics**:
+       - Cards with checklists: X/Y (should be 100%)
+       - Cards with priority labels: X/Y (should be 100%)
+       - Cards with category labels: X/Y (should be 100%)
+       - Cards with due dates: X/Y (should be 100%)
 
-    5. **Final Verification**:
-       - Ensure all cards have checklists
-       - Ensure all cards have due dates
-       - Ensure all cards have assignees
-       - Ensure all cards have appropriate labels
+    5. **Date Verification**:
+       - Are cards using dates from planning output?
+       - Do dates match the project timeline?
+       - Are sprint 1 tasks in "To Do" list?
 
-    Provide a final board summary report with:
-    - Total cards per list
-    - Total cards per team member
-    - Any issues or recommendations
-    - Board URL or board ID for easy access
+    6. **Board Readiness Score**: X/10
+       Scoring:
+       - All tasks created: +4 points
+       - All checklists added: +2 points
+       - All labels added: +2 points
+       - Dates match planning: +2 points
+
+    7. **Issues Found**:
+       - List any missing tasks
+       - Note any cards without checklists
+       - Identify any cards without labels
+       - Flag any date mismatches
+
+    8. **Recommendations**:
+       - If tasks are missing: "Create remaining tasks manually"
+       - Suggest any reorganization needed
+       - Next steps for the team
+
+    Provide a clear, readable report (NOT JSON).
+    Start with: "BOARD COMPLETENESS: X/Y tasks created (Z%)"
     """,
     agent=trello_workflow_organizer,
-    expected_output="""Complete board organization report with:
-    - Cards per list breakdown
-    - Team member workload summary
-    - Any issues or warnings
-    - Recommendations for board usage
-    - Board access information""",
+    expected_output="""Comprehensive verification report with:
+    - Task completeness percentage
+    - List of any missing tasks
+    - Quality metrics for checklists, labels, dates
+    - Board readiness score
+    - Issues and recommendations""",
     context=[create_board_structure_task, create_tasks_cards_task]
 )
 
@@ -198,6 +292,7 @@ organize_workflow_task = Task(
 execution_crew = Crew(
     agents=[trello_board_manager, trello_task_manager, trello_workflow_organizer],
     tasks=[create_board_structure_task, create_tasks_cards_task, organize_workflow_task],
-    verbose=True
+    verbose=True,
+    memory=False,
+    cache=False
 )
-

@@ -11,319 +11,402 @@ llm = LLM(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
 # ================================ Agents ================================
 task_generator = Agent(
     role="Task Breakdown Specialist",
-    goal="Convert project analysis into highly detailed, actionable tasks with clear specifications",
-    backstory="""You are a senior technical project manager with 15 years of experience breaking down
-    complex projects into granular, executable tasks. You NEVER create vague tasks - every task you
-    create has specific deliverables, clear acceptance criteria, and estimated effort. You think like
-    a developer and understand what makes a task truly actionable.""",
+    goal="Convert project analysis into detailed, actionable tasks with clear specifications",
+    backstory="""You are a senior technical project manager who breaks down projects into
+    specific, actionable tasks. Each task you create is clear, measurable, and completable
+    by a single person in 2-16 hours.
+
+    You ALWAYS include:
+    - Specific task titles (action-oriented)
+    - Detailed descriptions with technical requirements
+    - 3-5 measurable acceptance criteria
+    - Realistic effort estimates
+    - Clear priority levels
+    - Dependencies between tasks
+
+    You NEVER create vague tasks. Every task must be immediately actionable.""",
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
 timeline_planner = Agent(
     role="Timeline Architect",
-    goal="Create realistic, detailed project schedules with specific dates and milestones",
-    backstory="""Expert project scheduler who creates detailed timelines with specific start and end dates.
-    You understand task dependencies, resource constraints, and critical path analysis. You always provide
-    concrete dates and realistic time estimates based on team capacity.""",
+    goal="Create realistic project schedules with specific dates and milestones",
+    backstory="""You are an expert project scheduler who creates detailed timelines with
+    specific dates. You understand task dependencies and create realistic schedules that
+    account for:
+    - Task dependencies (what must be done first)
+    - Parallel work opportunities
+    - Team capacity and realistic work hours
+    - Buffer time for unknowns (15-20%)
+
+    You always provide concrete dates in YYYY-MM-DD format and organize work into
+    logical sprints or phases.""",
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
 task_assigner = Agent(
     role="Assignment Optimizer",
-    goal="Match tasks to team members with clear justification and workload balancing",
-    backstory="""Resource allocation expert who deeply analyzes team member skills, capacity, and
-        workload to make optimal task assignments. You provide detailed reasoning for each assignment
-        and ensure no team member is overloaded.""",
+    goal="Match tasks to team members based on skills and balance workload",
+    backstory="""You are a resource allocation expert who assigns tasks to team members
+    based on their skills and availability. You:
+    - Match tasks to team members with the best skills
+    - Balance workload across the team
+    - Identify when team members need training or support
+    - Flag when external help may be needed
+
+    You ensure no one is overloaded and everyone's skills are used effectively.""",
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
 planning_synthesizer = Agent(
     role="Project Planning Synthesizer",
     goal="Consolidate all planning outputs into a comprehensive, execution-ready project plan",
-    backstory="""You are a master project coordinator who excels at bringing together complex
-    planning information into clear, actionable formats. You take outputs from task breakdown,
-    timeline planning, and team assignments and synthesize them into a single, comprehensive
-    project plan that anyone can follow. Your plans are known for being complete, well-organized,
-    and immediately actionable. You ensure nothing is lost in translation and all critical
-    information is preserved and easily accessible.""",
+    backstory="""You are a master project coordinator who creates comprehensive project
+    plans. You take outputs from task breakdown, timeline planning, and team assignments
+    and combine them into a single, well-organized plan.
+
+    Your plans include EVERYTHING needed for execution:
+    - Complete task list with all details
+    - Sprint/phase breakdown
+    - Timeline with milestones
+    - Team assignments
+    - Dependencies
+    - Risks and recommendations
+
+    You ensure nothing is lost and all information is clearly organized in valid JSON format.""",
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
 # ================================ Tasks ================================
 task_generation_task = Task(
     description="""
-                Based on the comprehensive research insights: {research_output}
+    Break down the project into detailed, actionable tasks based on the research.
 
-                Break down the ENTIRE project into granular, actionable tasks. For EACH task, you MUST provide:
+    Research Output: {research_output}
 
-                1. **Task Title**: Clear, action-oriented (e.g., "Implement JWT Authentication Middleware", not "Authentication")
+    Create 15-25 tasks that cover the entire project. For EACH task, provide:
 
-                2. **Detailed Description**:
-                   - What exactly needs to be built/done
-                   - Technical specifications and requirements
-                   - Any specific technologies, libraries, or frameworks to use
-                   - Edge cases to handle
+    1. **title**: Clear, action-oriented (e.g., "Implement User Authentication API")
+    2. **description**: What needs to be built, technical specs, edge cases (2-3 sentences)
+    3. **acceptance_criteria**: List of 3-5 specific, testable criteria
+    4. **effort_hours**: Realistic estimate (4-40 hours per task)
+    5. **priority**: "Critical", "High", "Medium", or "Low"
+    6. **category**: "Backend", "Frontend", "Database", "DevOps", "Design", "Testing", or "Documentation"
+    7. **dependencies**: List of task titles that must be completed first (can be empty list)
+    8. **technical_requirements**: Specific files, APIs, or technologies needed
 
-                3. **Acceptance Criteria**:
-                   - Minimum 3-5 specific, testable criteria
-                   - Each criterion should be measurable (e.g., "API returns 401 for invalid tokens", not "works correctly")
+    TASK CREATION RULES:
+    - Break large features into multiple small tasks (4-16 hours each)
+    - Each task should be completable by ONE person
+    - Be specific - avoid vague language
+    - Include setup, development, testing, and documentation tasks
+    - Ensure tasks can be worked on in parallel when possible
 
-                4. **Effort Estimate**:
-                   - Provide in hours or days
-                   - Consider complexity, unknowns, testing, and code review time
+    OUTPUT FORMAT - MUST be valid JSON only, no additional text:
+    {{
+        "tasks": [
+            {{
+                "title": "Setup Development Environment",
+                "description": "Configure local environment with Node.js, React, PostgreSQL. Set up linting and Git hooks.",
+                "acceptance_criteria": [
+                    "All team members can run app locally",
+                    "ESLint and Prettier configured",
+                    "Git pre-commit hooks working"
+                ],
+                "effort_hours": 8,
+                "priority": "Critical",
+                "category": "DevOps",
+                "dependencies": [],
+                "technical_requirements": "Node.js 18+, PostgreSQL 14+, VS Code"
+            }},
+            {{
+                "title": "Design Database Schema",
+                "description": "Create PostgreSQL schema for users, projects, tasks. Include migrations and indexes.",
+                "acceptance_criteria": [
+                    "ER diagram created and reviewed",
+                    "All tables created with proper indexes",
+                    "Migration scripts tested"
+                ],
+                "effort_hours": 16,
+                "priority": "Critical",
+                "category": "Database",
+                "dependencies": ["Setup Development Environment"],
+                "technical_requirements": "PostgreSQL, Sequelize/Prisma ORM"
+            }}
+        ]
+    }}
 
-                5. **Priority**: Critical / High / Medium / Low with justification
-
-                6. **Dependencies**:
-                   - List specific tasks that must be completed first
-                   - Explain why the dependency exists
-
-                7. **Category/Phase**: (e.g., Backend, Frontend, Database, DevOps, Design, Testing)
-
-                8. **Technical Requirements**:
-                   - Specific files/modules to create or modify
-                   - APIs to build or integrate
-                   - Database schema changes needed
-
-                IMPORTANT RULES:
-                - Break large features into multiple small tasks (2-16 hours each)
-                - Each task should be completable by ONE person
-                - Be EXTREMELY specific - avoid vague language
-                - Include setup tasks (environment, tools, dependencies)
-                - Include testing tasks for each feature
-                - Include documentation tasks
-                - Include deployment/DevOps tasks
-
-                Format output as a detailed JSON array with all fields for each task.
-                """,
+    CRITICAL: Return ONLY the JSON object. NO explanatory text before or after.
+    Create 15-25 tasks minimum.
+    """,
     agent=task_generator,
-    expected_output="""Comprehensive JSON array of tasks, where each task contains:
-                {title, description, acceptance_criteria[], effort_hours, priority, dependencies[],
-                category, technical_requirements, assigned_to (leave empty for now)}.
-                Minimum 20-50 detailed tasks covering all project phases.""",
+    expected_output="Valid JSON object with 'tasks' array containing 15-25 task objects, each with all 8 required fields. NO additional text."
 )
 
 timeline_planning_task = Task(
     description="""
-                Based on the detailed task list from the previous step and the project timeline,
-                create a comprehensive project schedule with specific dates.
+    Create a project timeline with specific dates for all tasks.
 
-                Your timeline MUST include:
+    Task List: {{output from previous task}}
 
-                1. **Start and End Dates for EVERY Task**:
-                   - Provide actual dates (YYYY-MM-DD format)
-                   - Consider task dependencies - dependent tasks must start after prerequisites complete
-                   - Account for parallel work where tasks can run concurrently
+    Analyze the tasks and create a timeline that includes:
 
-                2. **Sprint/Phase Breakdown**:
-                   - Organize tasks into logical sprints or phases (typically 1-2 weeks each)
-                   - Each sprint should have a clear goal/theme
-                   - List all tasks in each sprint
+    1. **Start and End Dates**: Assign specific dates (YYYY-MM-DD) to each task
+    2. **Sprint Organization**: Group tasks into 1-2 week sprints
+    3. **Milestones**: Identify 5-8 key project milestones with dates
+    4. **Critical Path**: List tasks that cannot be delayed
 
-                3. **Milestones**:
-                   - Identify 5-10 key milestones (major deliverables or checkpoints)
-                   - Provide specific dates for each milestone
-                   - Describe what "done" looks like for each milestone
+    SCHEDULING RULES:
+    - Respect task dependencies (dependent tasks start after prerequisites)
+    - Allow parallel work where tasks have no dependencies
+    - Assume 6 productive hours per day per person
+    - Add 15% buffer time for unknowns
+    - project timeline: {project_timeline}
 
-                4. **Critical Path Analysis**:
-                   - Identify the critical path (longest chain of dependent tasks)
-                   - Highlight tasks on the critical path that cannot be delayed
-                   - Calculate total project duration
 
-                5. **Resource Allocation Timeline**:
-                   - Show how many team members are needed during each phase
-                   - Identify potential bottlenecks or periods of high resource demand
+    OUTPUT FORMAT - Valid JSON only:
+    {{
+        "project_start_date": "2025-11-15",
+        "project_end_date": "2026-01-31",
+        "total_duration_days": 77,
+        "sprints": [
+            {{
+                "sprint_number": 1,
+                "sprint_name": "Foundation & Setup",
+                "start_date": "2025-11-15",
+                "end_date": "2025-11-29",
+                "goal": "Complete environment setup and database design",
+                "task_titles": ["Setup Development Environment", "Design Database Schema"]
+            }}
+        ],
+        "milestones": [
+            {{
+                "name": "Development Environment Ready",
+                "date": "2025-11-16",
+                "deliverables": ["Local dev environment", "CI/CD pipeline"]
+            }}
+        ],
+        "critical_path": ["Setup Development Environment", "Design Database Schema", "Implement Authentication"],
+        "task_schedule": [
+            {{
+                "title": "Setup Development Environment",
+                "start_date": "2025-11-15",
+                "end_date": "2025-11-16",
+                "assigned_sprint": 1
+            }}
+        ]
+    }}
 
-                6. **Buffer Time**:
-                   - Include buffer time for unknowns (typically 15-20% of task estimates)
-                   - Mark buffer periods explicitly in the timeline
-
-                IMPORTANT: Use the project deadline from the research to work backwards.
-                Be realistic about how much can be accomplished in the given timeframe.
-                """,
+    CRITICAL: Return ONLY the JSON object. NO explanatory text.
+    """,
     agent=timeline_planner,
-    expected_output="""Detailed project timeline in JSON format with:
-                {sprints: [{sprint_name, start_date, end_date, tasks[], goal}],
-                milestones: [{name, date, deliverables[]}],
-                critical_path: [task_ids],
-                project_start_date,
-                project_end_date,
-                total_duration_days}""",
-    context=[task_generation_task],
+    expected_output="Valid JSON object with project dates, sprints array, milestones array, critical_path array, and task_schedule array. NO additional text.",
+    context=[task_generation_task]
 )
 
 task_assignment_task = Task(
     description="""
-                Assign every task to the most appropriate team member(s) based on their skills and capacity.
+    Assign tasks to team members based on their skills and balance workload.
 
-                Team Members Available: {team_members}
+    Team Members: {team_members}
+    Tasks: {{output from task_generation_task}}
 
-                For EACH task, you must:
+    For each task, assign to the best team member considering:
+    - Skill match (does their expertise align with task requirements?)
+    - Workload balance (distribute hours evenly)
+    - Dependencies (same person for related tasks = better continuity)
 
-                1. **Analyze Skill Match**:
-                   - Review the task's technical requirements
-                   - Match with team member skills
-                   - Assign to the team member with the best skill match
+    Calculate team utilization:
+    - Total hours per person
+    - Utilization percentage (assume 6 productive hours/day)
+    - Identify if anyone is over/under-utilized
 
-                2. **Consider Workload Balance**:
-                   - Calculate total hours assigned to each team member
-                   - Ensure no one is overloaded (typically max 6 productive hours/day)
-                   - Distribute work evenly when possible
+    OUTPUT FORMAT - Valid JSON only:
+    {{
+        "assignments": [
+            {{
+                "task_title": "Setup Development Environment",
+                "assigned_to": "Alice Johnson",
+                "justification": "Full-stack developer with DevOps experience, familiar with Node.js and React setup",
+                "backup_assignee": "Carol Chen"
+            }}
+        ],
+        "team_utilization": [
+            {{
+                "member_name": "Alice Johnson",
+                "role": "Full Stack Developer",
+                "total_tasks": 8,
+                "total_hours": 96,
+                "utilization_percentage": 80,
+                "workload_status": "Well Balanced"
+            }}
+        ],
+        "skill_gaps": [
+            {{
+                "task_title": "Setup AWS Infrastructure",
+                "missing_skill": "AWS DevOps",
+                "recommendation": "Provide AWS training to Carol Chen or hire DevOps consultant"
+            }}
+        ]
+    }}
 
-                3. **Respect Dependencies**:
-                   - If tasks are dependent, consider assigning to same person for continuity
-                   - OR ensure clear handoff documentation between team members
-
-                4. **Account for Skill Gaps**:
-                   - If a task requires skills no one has, flag it
-                   - Suggest either training time or external help
-
-                5. **Provide Assignment Justification**:
-                   - Explain WHY you chose this person
-                   - What specific skills make them suitable
-                   - Any concerns or risks with the assignment
-
-                6. **Calculate Team Member Utilization**:
-                   - For each team member, show: total tasks, total hours, utilization %
-                   - Flag if anyone is under-utilized or over-utilized
-
-                Output Format: JSON with complete task assignments plus team utilization summary.
-                """,
+    CRITICAL: Return ONLY the JSON object. NO explanatory text.
+    Ensure EVERY task is assigned to someone.
+    """,
     agent=task_assigner,
-    expected_output="""JSON containing:
-                {assigned_tasks: [{task_id, task_title, assigned_to, justification, backup_assignee}],
-                team_utilization: [{member_name, total_tasks, total_hours, utilization_percentage, workload_status}],
-                skill_gaps: [{task_id, missing_skill, recommendation}],
-                assignment_risks: [any concerns about assignments]}""",
-    context=[task_generation_task, timeline_planning_task],
+    expected_output="Valid JSON object with assignments array (one per task), team_utilization array, and skill_gaps array. NO additional text.",
+    context=[task_generation_task, timeline_planning_task]
 )
 
 planning_synthesis_task = Task(
     description="""
-                Consolidate ALL planning outputs into a single, comprehensive, execution-ready project plan.
+    Consolidate ALL planning outputs into one comprehensive project plan.
 
-                You have outputs from:
-                1. Task Generation (detailed task breakdown)
-                2. Timeline Planning (schedule and milestones)
-                3. Task Assignment (team assignments and utilization)
+    You have:
+    1. Tasks with details (from task_generation_task)
+    2. Timeline and sprints (from timeline_planning_task)
+    3. Team assignments (from task_assignment_task)
 
-                Create a COMPLETE consolidated plan that includes:
+    Create a COMPLETE consolidated plan that merges all information.
 
-                ## 1. EXECUTIVE SUMMARY
-                - Project overview
-                - Total tasks count
-                - Total estimated effort (hours/days)
-                - Project duration (start to end date)
-                - Number of sprints/phases
-                - Key milestones
-                - Team size and composition
-                - Critical success factors
+    OUTPUT FORMAT - Valid JSON only:
+    {{
+        "executive_summary": {{
+            "project_name": "Extract from research",
+            "total_tasks": 20,
+            "total_estimated_hours": 320,
+            "project_duration_days": 77,
+            "project_start_date": "2025-11-15",
+            "project_end_date": "2026-01-31",
+            "number_of_sprints": 5,
+            "team_size": 3,
+            "key_milestones": 6
+        }},
+        "tasks": [
+            {{
+                "task_id": "T001",
+                "title": "Setup Development Environment",
+                "description": "Configure local dev environment...",
+                "acceptance_criteria": ["Criterion 1", "Criterion 2"],
+                "effort_hours": 8,
+                "priority": "Critical",
+                "category": "DevOps",
+                "dependencies": [],
+                "technical_requirements": "Node.js 18+, PostgreSQL",
+                "assigned_to": "Alice Johnson",
+                "assignment_justification": "Full-stack dev with DevOps experience",
+                "start_date": "2025-11-15",
+                "end_date": "2025-11-16",
+                "sprint_number": 1,
+                "status": "Not Started"
+            }}
+        ],
+        "sprints": [
+            {{
+                "sprint_number": 1,
+                "sprint_name": "Foundation & Setup",
+                "start_date": "2025-11-15",
+                "end_date": "2025-11-29",
+                "goal": "Complete environment and database setup",
+                "task_ids": ["T001", "T002"],
+                "team_members": ["Alice Johnson", "Carol Chen"]
+            }}
+        ],
+        "timeline": {{
+            "project_start_date": "2025-11-15",
+            "project_end_date": "2026-01-31",
+            "total_duration_days": 77,
+            "milestones": [
+                {{
+                    "name": "Development Environment Ready",
+                    "date": "2025-11-16",
+                    "deliverables": ["Local dev environment", "CI/CD pipeline"]
+                }}
+            ],
+            "critical_path": ["T001", "T002", "T003"]
+        }},
+        "team_assignments": [
+            {{
+                "member_name": "Alice Johnson",
+                "role": "Full Stack Developer",
+                "assigned_task_ids": ["T001", "T003"],
+                "total_tasks": 8,
+                "total_hours": 96,
+                "utilization_percentage": 80,
+                "workload_status": "Well Balanced"
+            }}
+        ],
+        "dependencies": [
+            {{
+                "task_id": "T002",
+                "depends_on": ["T001"],
+                "reason": "Database setup requires dev environment"
+            }}
+        ],
+        "risks": [
+            {{
+                "category": "Skill Gap",
+                "description": "No AWS expertise on team",
+                "mitigation": "Provide AWS training or hire consultant",
+                "priority": "Medium"
+            }}
+        ],
+        "execution_instructions": {{
+            "list_organization": "High priority tasks in 'To Do', others in 'Backlog'",
+            "label_scheme": {{
+                "priority_colors": {{
+                    "Critical": "red",
+                    "High": "orange",
+                    "Medium": "yellow",
+                    "Low": "green"
+                }},
+                "category_colors": {{
+                    "Backend": "blue",
+                    "Frontend": "purple",
+                    "Database": "sky",
+                    "DevOps": "lime",
+                    "Testing": "pink",
+                    "Documentation": "black"
+                }}
+            }},
+            "checklist_creation": "Use acceptance_criteria array for checklist items",
+            "special_notes": "Start with sprint 1 tasks in 'To Do', rest in 'Backlog'"
+        }}
+    }}
 
-                ## 2. COMPLETE TASK LIST
-                For EACH task, consolidate and provide:
-                - Task ID (unique identifier)
-                - Task Title
-                - Full Description
-                - Acceptance Criteria (all items)
-                - Effort Estimate (hours)
-                - Priority Level (Critical/High/Medium/Low)
-                - Category/Phase
-                - Technical Requirements
-                - Dependencies (list of task IDs)
-                - Assigned To (team member name and email)
-                - Assignment Justification
-                - Start Date (YYYY-MM-DD)
-                - End Date (YYYY-MM-DD)
-                - Sprint/Phase number
-                - Status (default: "Not Started")
+    CRITICAL REQUIREMENTS:
+    1. Output ONLY valid JSON - NO explanatory text before or after
+    2. Include ALL tasks from task_generation (don't skip any)
+    3. Merge dates from timeline_planning into each task
+    4. Merge assignments from task_assignment into each task
+    5. Generate task IDs (T001, T002, etc.) for easy reference
+    6. Ensure dates are consistent across all sections
+    7. Every task must have start_date, end_date, and assigned_to
 
-                ## 3. SPRINT/PHASE BREAKDOWN
-                For each sprint/phase:
-                - Sprint Number/Name
-                - Start Date
-                - End Date
-                - Sprint Goal/Theme
-                - List of Task IDs in this sprint
-                - Team members involved
-                - Key deliverables
-
-                ## 4. TIMELINE & MILESTONES
-                - Project start date
-                - Project end date
-                - Total duration (days/weeks)
-                - All milestones with dates
-                - Critical path task IDs
-                - Buffer periods
-
-                ## 5. TEAM ASSIGNMENTS & UTILIZATION
-                For each team member:
-                - Name and role
-                - Assigned task IDs
-                - Total tasks assigned
-                - Total estimated hours
-                - Utilization percentage
-                - Workload status
-                - Key responsibilities
-
-                ## 6. DEPENDENCIES MAP
-                - List all task dependencies
-                - Identify which tasks block others
-                - Highlight critical path items
-
-                ## 7. RISKS & CONSIDERATIONS
-                - Assignment risks
-                - Skill gaps
-                - Timeline risks
-                - Dependency risks
-                - Mitigation recommendations
-
-                ## 8. EXECUTION INSTRUCTIONS
-                Provide clear instructions for the execution crew:
-                - How tasks should be organized in Trello lists
-                - Which tasks should go in which list initially
-                - Label scheme recommendations (priority colors, type labels)
-                - Checklist items to add to each card
-                - Any special notes or considerations
-
-                IMPORTANT:
-                - Include ALL tasks from task generation (don't skip any)
-                - Ensure dates are consistent between sections
-                - Verify all assignments are included
-                - Double-check that dependencies reference valid task IDs
-                - Format as well-structured JSON or Markdown
-                - This output will be used directly by the execution crew to create Trello cards
-
-                The execution crew will use this EXACT output to:
-                1. Create Trello lists
-                2. Create cards for each task
-                3. Add checklists from acceptance criteria
-                4. Assign team members
-                5. Set due dates
-                6. Create and apply labels
-                7. Organize cards into appropriate lists
-
-                Make sure EVERY piece of information needed for execution is included and clearly formatted.
-                """,
+    This output will be used directly by the execution crew to create Trello cards.
+    Make sure it's complete and properly formatted.
+    """,
     agent=planning_synthesizer,
-    expected_output="""Complete, consolidated project plan in JSON format with ALL sections:
-                {
-                    "executive_summary": {summary data},
-                    "tasks": [complete array of all tasks with all fields],
-                    "sprints": [sprint breakdown with task IDs],
-                    "timeline": {dates, milestones, critical_path},
-                    "team_assignments": [team member data with assignments],
-                    "dependencies": [dependency mapping],
-                    "risks": [all identified risks],
-                    "execution_instructions": {guidance for execution crew}
-                }
+    expected_output="""Complete consolidated project plan in valid JSON format with:
+    - executive_summary object
+    - tasks array (15-25 tasks with ALL fields merged)
+    - sprints array
+    - timeline object
+    - team_assignments array
+    - dependencies array
+    - risks array
+    - execution_instructions object
 
-                This must be complete, well-formatted, and ready for immediate use by the execution crew.
-                Minimum 20-50 tasks with complete details for each.""",
-    context=[task_generation_task, timeline_planning_task, task_assignment_task],
+    NO additional text outside the JSON object.""",
+    context=[task_generation_task, timeline_planning_task, task_assignment_task]
 )
 
 
@@ -332,4 +415,6 @@ planning_crew = Crew(
     agents=[task_generator, timeline_planner, task_assigner, planning_synthesizer],
     tasks=[task_generation_task, timeline_planning_task, task_assignment_task, planning_synthesis_task],
     verbose=True,
+    memory=False,  # Disable memory for consistent behavior
+    cache=False    # Disable cache for fresh execution
 )

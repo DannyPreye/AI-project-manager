@@ -7,437 +7,382 @@ load_dotenv()
 
 llm = LLM(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
 
+# Tools - will only be used when needed
 scrape_website_tool = ScrapeWebsiteTool()
 serper_tool = SerperDevTool(api_key=os.getenv("SERPER_API_KEY"))
 
 # ================================ Agents ================================
-industry_researcher = Agent(
-    role="Industry Research Specialist",
-    goal="Conduct comprehensive industry analysis with actionable insights and data-driven recommendations",
-    backstory="""You are a senior market research analyst with 12+ years of experience in technology
-            and business intelligence. You don't just gather surface-level information - you dive deep into
-            market dynamics, competitive positioning, emerging trends, and industry-specific challenges.
-            You always back your findings with concrete examples, statistics, and real-world case studies.
-            You identify both opportunities and threats with equal rigor.""",
-    tools=[
-        scrape_website_tool,
-        serper_tool,
-    ],
+
+research_coordinator = Agent(
+    role="Research Coordinator",
+    goal="Analyze project description and determine what additional research is actually needed",
+    backstory="""You are an expert at evaluating project descriptions and determining
+    what information is missing or needs clarification. You AVOID unnecessary web searches
+    by first thoroughly analyzing what information is already provided.
+
+    You only recommend web research when:
+    1. Project description lacks specific technical details
+    2. Industry trends/competitors need to be identified
+    3. Best practices for the domain are not mentioned
+    4. Team skills need to be matched against market requirements
+
+    If the project description is detailed and complete, you say NO web research needed.""",
     llm=llm,
     verbose=True,
+    allow_delegation=False
+)
+
+industry_researcher = Agent(
+    role="Industry Research Specialist",
+    goal="Conduct targeted industry research ONLY when gaps are identified",
+    backstory="""You are a senior market research analyst who conducts efficient,
+    focused research. You ONLY use web search tools when explicitly told to research
+    specific topics. You don't search just because you can - you search because
+    there's a real information gap to fill.
+
+    When research is needed, you focus on:
+    - Specific competitors in the space
+    - Recent industry trends (last 6-12 months)
+    - Technical challenges unique to the domain
+    - Best practices that aren't obvious""",
+    tools=[scrape_website_tool, serper_tool],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
 )
 
 project_analyzer = Agent(
     role="Project Scope Analyst",
-    goal="Perform exhaustive project analysis identifying every deliverable, risk, dependency, and constraint",
-    backstory="""Senior technical project analyst with 15+ years managing complex software projects across
-    multiple industries. You have a gift for breaking down ambiguous requirements into crystal-clear
-    specifications. You anticipate problems before they happen and identify hidden dependencies that others
-    miss. You think in terms of technical architecture, data flows, integration points, and potential
-    bottlenecks. You NEVER leave requirements vague - everything must be specific and measurable.""",
+    goal="Analyze project requirements and fill gaps with targeted research if needed",
+    backstory="""Senior technical project analyst who thoroughly analyzes project
+    descriptions. You work with what's provided first, and only request additional
+    research when critical information is missing.
+
+    You extract maximum value from existing information before asking for more.""",
+    tools=[scrape_website_tool, serper_tool],
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
 team_assessor = Agent(
     role="Team Capability Assessor",
-    goal="Conduct thorough skills assessment and create optimal team composition recommendations",
-    backstory="""Expert technical recruiter and team lead with 10+ years building high-performing
-    engineering teams. You understand not just what skills are listed, but how those skills translate
-    to actual project capabilities. You assess skill levels (junior/mid/senior), identify knowledge
-    gaps, recommend training needs, and flag potential team dynamics issues. You consider workload
-    capacity, collaboration needs, and skill overlap when making recommendations.""",
+    goal="Assess team capabilities against project needs, researching only when skills are unclear",
+    backstory="""Expert technical recruiter and team lead who evaluates team fit.
+    You understand common technical skills and only research when:
+    - Unfamiliar technologies are mentioned
+    - New frameworks or tools need investigation
+    - Industry-specific skills need clarification""",
+    tools=[serper_tool],  # Only search tool, no scraping
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
-project_research_summarize = Agent(
-    role="Project Research Synthesizer",
-    goal="Create a comprehensive, structured research report that serves as the definitive project foundation",
-    backstory="""Master synthesizer who takes complex research from multiple sources and creates clear,
-    actionable intelligence reports. You have worked with Fortune 500 companies helping them launch major
-    initiatives. Your reports are known for being thorough yet readable, with clear sections, specific
-    findings, and actionable recommendations. You NEVER summarize by omitting important details - you
-    synthesize by organizing information logically and highlighting key insights.""",
+research_synthesizer = Agent(
+    role="Research Synthesizer",
+    goal="Consolidate all findings into comprehensive foundation document",
+    backstory="""Master synthesizer who creates clear, actionable project foundation
+    documents. You work with whatever information is available - whether from detailed
+    project descriptions or from web research - and create complete, well-organized plans.""",
     llm=llm,
     verbose=True,
+    allow_delegation=False
 )
 
 # ================================ Tasks ================================
-industry_research_task = Task(
+
+evaluate_research_needs_task = Task(
     description="""
-                Conduct comprehensive industry research for: {project_name}
-                Industry: {industry}
+    Analyze the project description and determine what research is actually needed.
 
-                Your research MUST cover the following in depth:
+    Project Name: {project_name}
+    Project Description: {project_description}
+    Industry: {industry}
+    Team Members: {team_members}
 
-                1. **Market Overview & Size**:
-                   - Current market size and growth rate (with numbers/percentages)
-                   - Key market segments and their characteristics
-                   - Geographic distribution and opportunities
-                   - Market maturity stage and trajectory
+    EVALUATE INFORMATION COMPLETENESS:
 
-                2. **Industry Trends** (identify at least 5-7 current trends):
-                   - Emerging technologies being adopted
-                   - Changing customer behaviors and expectations
-                   - Regulatory or compliance changes
-                   - Innovation patterns and disruption threats
-                   - Provide specific examples and timeframes
+    1. **Project Description Analysis**:
+       - Is the tech stack specified? (Frontend, Backend, Database, etc.)
+       - Are features and requirements clearly listed?
+       - Are non-functional requirements mentioned? (Performance, Security, etc.)
+       - Is the scope well-defined?
 
-                3. **Competitive Landscape**:
-                   - Identify 5-10 major competitors (with company names)
-                   - Their market positioning and unique value propositions
-                   - Their strengths and weaknesses
-                   - Market share estimates where available
-                   - Recent product launches or strategic moves
-                   - Pricing strategies and business models
+    2. **Industry Information**:
+       - Is the industry standard or well-known? (e.g., "E-commerce", "SaaS")
+       - Does the description mention competitors or market positioning?
+       - Are industry-specific challenges mentioned?
 
-                4. **Common Challenges & Pitfalls**:
-                   - Technical challenges specific to this industry
-                   - Common reasons projects fail in this space
-                   - Scalability and performance concerns
-                   - Security and compliance requirements
-                   - Integration challenges with existing systems
-                   - Provide real examples of failures and their causes
+    3. **Technical Details**:
+       - Are technologies and frameworks specified?
+       - Is the architecture approach mentioned?
+       - Are integrations/APIs listed?
 
-                5. **Best Practices & Success Factors**:
-                   - Proven approaches that lead to success
-                   - Technology stacks commonly used
-                   - Architecture patterns that work well
-                   - User experience expectations in this industry
-                   - Development methodologies that fit best
-                   - Case studies of successful implementations
+    4. **Team Information**:
+       - Are team members' skills clearly listed?
+       - Are roles well-defined?
+       - Are there obvious skill gaps?
 
-                6. **Opportunities & Threats**:
-                   - Market gaps or underserved niches
-                   - Emerging opportunities from new technologies
-                   - Potential threats from competitors or market shifts
-                   - Risk factors to monitor
+    DECISION CRITERIA:
 
-                Use web search to find recent articles, reports, and real-world examples.
-                Back every claim with sources or examples. Be specific with numbers, dates, and names.
-                """,
-    agent=industry_researcher,
-    expected_output="""Detailed industry research report (1500-2500 words) with:
-                - Market overview with statistics
-                - 5-7 specific trends with examples
-                - Competitive analysis of 5-10 players
-                - List of common challenges with real examples
-                - Best practices with case studies
-                - SWOT-style opportunities and threats analysis
-                All findings should be specific, recent (within last 2 years), and actionable.""",
+    **NO WEB RESEARCH NEEDED** if:
+    - Project description is 200+ words with specific technical details
+    - Tech stack is fully specified
+    - Industry is standard/well-known
+    - Team skills are clearly listed
+    - Requirements are detailed with acceptance criteria
+
+    **LIMITED RESEARCH NEEDED** if:
+    - Industry is mentioned but competitors/trends not covered
+    - Some technical details missing
+    - Need to verify best practices for specified tech stack
+
+    **FULL RESEARCH NEEDED** if:
+    - Project description is vague or < 100 words
+    - Industry is unclear or emerging/niche
+    - No tech stack specified
+    - Team skills don't match project needs clearly
+
+    OUTPUT FORMAT (must be JSON):
+    {{
+        "research_recommendation": "none" | "limited" | "full",
+        "reasoning": "Why this level of research is needed",
+        "information_gaps": [
+            "List specific gaps that need research"
+        ],
+        "research_topics": [
+            "Specific topics to research (empty if none needed)"
+        ],
+        "estimated_completeness": "Percentage of info already available (e.g., '80%')"
+    }}
+
+    CRITICAL: Be conservative - if 70%+ of information is available, recommend "none" or "limited" research.
+    """,
+    agent=research_coordinator,
+    expected_output="JSON object with research_recommendation, reasoning, information_gaps, research_topics, and estimated_completeness"
 )
 
-project_analysis_task = Task(
+conditional_industry_research_task = Task(
     description="""
-                Perform exhaustive project scope analysis for:
-                Name: {project_name}
-                Description: {project_description}
-                Timeline: {project_timeline}
+    Based on the research coordinator's recommendation, conduct targeted industry research.
 
-                Your analysis MUST be extremely detailed and specific:
+    Research Recommendation: {{output from evaluate_research_needs_task}}
+    Industry: {industry}
+    Project Description: {project_description}
 
-                1. **Key Deliverables Breakdown** (identify 10-30 deliverables):
-                   - List EVERY major feature and component
-                   - For each deliverable specify:
-                     * What exactly needs to be built
-                     * Technical specifications
-                     * User-facing vs backend components
-                     * Integration requirements
-                     * Quality and performance criteria
-                   - Organize by priority (Must-have / Should-have / Nice-to-have)
-                   - Include deliverables for: MVP, documentation, testing, deployment
+    INSTRUCTIONS:
 
-                2. **Technical Architecture Requirements**:
-                   - System architecture patterns needed (microservices, monolith, serverless, etc.)
-                   - Technology stack recommendations (languages, frameworks, databases)
-                   - Infrastructure requirements (servers, cloud services, CDN, etc.)
-                   - Third-party services/APIs needed
-                   - Data storage and database design considerations
-                   - API design approach (REST, GraphQL, gRPC)
-                   - Authentication and authorization approach
-                   - Frontend architecture (SPA, SSR, mobile apps)
+    1. **If research_recommendation is "none"**:
+       - DO NOT use any search tools
+       - Output: "No industry research needed. Project description is sufficiently detailed."
 
-                3. **Comprehensive Risk Assessment** (identify 15-25 risks):
-                   - Technical risks (scalability, performance, security, tech debt)
-                   - Resource risks (team skills, availability, budget)
-                   - Schedule risks (timeline, dependencies, unknowns)
-                   - Business risks (market changes, competition, requirements changes)
-                   - Integration risks (third-party APIs, legacy systems)
-                   - For EACH risk provide:
-                     * Likelihood (High/Medium/Low)
-                     * Impact (High/Medium/Low)
-                     * Specific mitigation strategy
-                     * Contingency plan
+    2. **If research_recommendation is "limited"**:
+       - Use search tools ONLY for the specific topics listed in research_topics
+       - Keep research focused and brief (2-3 searches maximum)
+       - Focus on recent trends (last 6 months) and top 3 competitors
 
-                4. **Dependencies Analysis**:
-                   - Component dependencies (what must be built first)
-                   - Data dependencies (data flows between systems)
-                   - External dependencies (third-party services, APIs)
-                   - Team dependencies (who needs to work with whom)
-                   - Infrastructure dependencies (deployment order)
-                   - Create a dependency map/hierarchy
+    3. **If research_recommendation is "full"**:
+       - Conduct comprehensive research as originally specified
+       - Cover market size, trends, competitors, challenges, best practices
 
-                5. **Critical Path Identification**:
-                   - Identify the critical path through the project
-                   - List items that cannot be parallelized
-                   - Highlight bottleneck tasks or resources
-                   - Estimate impact of delays on critical path items
+    OUTPUT FORMAT:
 
-                6. **Resource Requirements** (be specific):
-                   - Development resources (hours/weeks per role)
-                   - Infrastructure costs (hosting, services, tools)
-                   - Software licenses and subscriptions needed
-                   - External services or consultants required
-                   - Testing environments and tools
-                   - Monitoring and analytics tools
+    For "none":
+    "RESEARCH SKIPPED: Project description is detailed (X% complete). No additional industry research required."
 
-                7. **Non-Functional Requirements**:
-                   - Performance targets (response times, throughput)
-                   - Scalability requirements (expected users, growth)
-                   - Security requirements (compliance, data protection)
-                   - Availability and uptime targets
-                   - Browser/device compatibility
-                   - Accessibility requirements
+    For "limited":
+    "LIMITED RESEARCH CONDUCTED:
+    - Topic 1: [findings]
+    - Topic 2: [findings]
+    Based on [X] focused searches."
 
-                8. **Success Criteria & KPIs**:
-                   - Define measurable success metrics
-                   - Technical KPIs (performance, uptime, bug rate)
-                   - Business KPIs (user adoption, conversion, engagement)
-                   - Quality metrics (test coverage, code quality)
+    For "full":
+    "COMPREHENSIVE RESEARCH:
+    [Full industry analysis as before]"
 
-                Based on industry research context, incorporate industry-specific best practices and challenges.
-                """,
+    IMPORTANT: Only use web search when research_recommendation is NOT "none".
+    """,
+    agent=industry_researcher,
+    expected_output="Industry research findings or statement that research was skipped",
+    context=[evaluate_research_needs_task]
+)
+
+conditional_project_analysis_task = Task(
+    description="""
+    Analyze project scope, using web research only if critical gaps exist.
+
+    Research Recommendation: {{output from evaluate_research_needs_task}}
+    Project Description: {project_description}
+    Project Timeline: {project_timeline}
+    Industry Research: {{output from conditional_industry_research_task}}
+
+    WORK WITH WHAT'S PROVIDED:
+
+    1. **Extract from Project Description**:
+       - List all mentioned features and requirements
+       - Identify specified technologies
+       - Note any architecture details provided
+       - Document stated constraints or requirements
+
+    2. **Use Web Search ONLY If**:
+       - Research recommendation includes specific technical topics
+       - Need to verify best practices for unfamiliar tech stack
+       - Critical technical information is missing
+
+    3. **Analysis Requirements**:
+       - Deliverables breakdown (from description)
+       - Technical architecture (specified or recommended)
+       - Risk assessment (based on provided info + limited research if needed)
+       - Dependencies (from requirements)
+       - Resource requirements (estimated from scope)
+
+    OUTPUT FORMAT:
+
+    Start with: "PROJECT ANALYSIS [Using: Project Description {{"+ Web Research" if searches used}}]"
+
+    Then provide:
+    - Key deliverables (10-30 items)
+    - Technical architecture recommendations
+    - Risk assessment (15-25 risks)
+    - Dependencies
+    - Resource requirements
+    - Success criteria
+
+    IMPORTANT: Most information should come from the project description.
+    Only search if research_recommendation indicates critical gaps.
+    """,
     agent=project_analyzer,
-    expected_output="""Comprehensive project analysis document (2000-3000 words) containing:
-                - 10-30 specific deliverables with technical specs
-                - Complete technology stack and architecture recommendations
-                - 15-25 risks with likelihood, impact, and mitigation strategies
-                - Detailed dependency map with clear relationships
-                - Critical path analysis
-                - Specific resource requirements with estimates
-                - Non-functional requirements with measurable targets
-                - Success criteria and KPIs
-                Must be actionable and specific enough to start project planning immediately.""",
-    context=[industry_research_task],
+    expected_output="Comprehensive project analysis based primarily on project description, with targeted research only if needed",
+    context=[evaluate_research_needs_task, conditional_industry_research_task]
 )
 
 team_assessment_task = Task(
     description="""
-                Conduct comprehensive team capability assessment for:
-                Team members: {team_members}
+    Assess team capabilities, researching unfamiliar technologies only when necessary.
 
-                For EACH team member, provide detailed analysis:
+    Team Members: {team_members}
+    Project Requirements: {{output from conditional_project_analysis_task}}
+    Research Recommendation: {{output from evaluate_research_needs_task}}
 
-                1. **Individual Skill Assessment**:
-                   - List all skills mentioned and categorize them:
-                     * Programming languages and frameworks
-                     * Frontend technologies
-                     * Backend technologies
-                     * Database expertise
-                     * DevOps and infrastructure
-                     * Design and UX skills
-                     * Soft skills (PM, writing, communication)
-                   - Estimate skill level based on role (Junior/Mid/Senior)
-                   - Identify their primary strengths (top 3-5 skills)
-                   - Note any specialized or unique capabilities
+    TEAM ANALYSIS:
 
-                2. **Project Role Suitability**:
-                   - Based on project requirements, suggest their best role(s)
-                   - What parts of the project are they best suited for?
-                   - Can they be a lead/owner for certain components?
-                   - Backup roles they could handle if needed
+    1. **Skills Inventory**:
+       - List each member's skills and experience level
+       - Match skills to project requirements
+       - Identify coverage (who can do what)
 
-                3. **Skills Gap Analysis**:
-                   - Compare team skills against ALL project requirements
-                   - Identify missing or weak skills for:
-                     * Critical project technologies
-                     * Architecture patterns needed
-                     * Specific tools or frameworks
-                     * Domain knowledge requirements
-                   - Prioritize gaps (Critical / Important / Nice-to-have)
-                   - Suggest solutions for each gap:
-                     * Training/upskilling existing team members
-                     * Hiring recommendations (specific roles/skills)
-                     * External contractors or consultants
-                     * Alternative technical approaches
+    2. **Gap Analysis**:
+       - Compare team skills to project needs
+       - Identify missing capabilities
+       - Prioritize gaps (Critical/Important/Nice-to-have)
 
-                4. **Team Composition Analysis**:
-                   - Overall team balance (frontend vs backend vs full-stack)
-                   - Skill overlap and redundancy (good for resilience)
-                   - Single points of failure (only one person knows X)
-                   - Team size adequacy for project scope
-                   - Collaboration and communication structure
+    3. **Research ONLY If**:
+       - Unfamiliar technology mentioned in project (e.g., "We need Elixir experts")
+       - New framework that team hasn't used (check if training is feasible)
+       - Industry-specific skills that need clarification
 
-                5. **Capacity and Workload Estimation**:
-                   - Estimate realistic capacity per team member
-                   - Consider: meetings, code reviews, planning, unknowns
-                   - Typical productive hours per day (usually 5-6 hours)
-                   - Any mentioned constraints or availability issues
-                   - Calculate total team capacity vs project needs
+    4. **Recommendations**:
+       - Task distribution based on skills
+       - Training needs
+       - Hiring recommendations (if any)
+       - Team structure
 
-                6. **Recommended Task Distribution Strategy**:
-                   - Suggest which team members should work on which areas
-                   - Identify natural pairings for collaboration
-                   - Recommend mentor/mentee relationships for upskilling
-                   - Flag any workload imbalance concerns
-                   - Suggest team lead or technical leads
+    OUTPUT FORMAT:
 
-                7. **Risk Assessment**:
-                   - Team-related risks (skills, capacity, turnover)
-                   - Dependencies on specific individuals
-                   - Learning curve for new technologies
-                   - Communication or coordination challenges
-                   - Mitigation strategies for team risks
+    "TEAM ASSESSMENT [Using: Team Info {{"+ Tech Research" if searches used}}]"
 
-                8. **Recommendations**:
-                   - Should any new roles be hired? (specific skills)
-                   - What training should be prioritized?
-                   - How should the team be organized?
-                   - Any process or tooling recommendations?
+    Then provide:
+    - Individual skill analysis
+    - Skills gap analysis with priorities
+    - Capacity analysis
+    - Recommendations
 
-                Be specific and actionable. Use the project analysis context to understand exact requirements.
-                """,
+    DO NOT search for common technologies (React, Node.js, Python, etc.)
+    ONLY research truly unfamiliar or cutting-edge technologies.
+    """,
     agent=team_assessor,
-    expected_output="""Comprehensive team assessment report (1500-2500 words) containing:
-                - Individual analysis for each team member with skills categorized
-                - Detailed skills gap analysis with prioritized list of gaps
-                - Specific hiring recommendations if needed (roles and skills)
-                - Training recommendations with priorities
-                - Optimal team structure and task distribution strategy
-                - Team capacity analysis (total hours available vs needed)
-                - Risk assessment for team-related issues
-                - Actionable recommendations for team optimization
-                Include a summary matrix showing: [Team Member | Primary Skills | Best Suited For | Skill Level]""",
-    context=[project_analysis_task, industry_research_task],
+    expected_output="Team capability assessment with skills gaps, capacity analysis, and recommendations",
+    context=[evaluate_research_needs_task, conditional_project_analysis_task]
 )
 
-project_research_summary_task = Task(
+research_synthesis_task = Task(
     description="""
-    Synthesize ALL research findings into a comprehensive, well-structured project foundation document.
+    Synthesize all findings into comprehensive project foundation document.
 
-    This document will be THE definitive reference for project planning, so it must be complete and detailed.
+    Research Recommendation: {{output from evaluate_research_needs_task}}
+    Industry Research: {{output from conditional_industry_research_task}}
+    Project Analysis: {{output from conditional_project_analysis_task}}
+    Team Assessment: {{output from team_assessment_task}}
 
-    Structure your report with these sections (do NOT omit any details):
+    Create complete project foundation document with these sections:
 
     ## EXECUTIVE SUMMARY
-    - Project overview in 2-3 paragraphs
-    - Key findings and critical insights
-    - Top 5-7 recommendations
-    - Major risks and mitigation approaches
-    - Go/No-Go assessment with justification
+    - Project overview
+    - Information sources used (project description, limited research, or full research)
+    - Key findings
+    - Top recommendations
+    - Go/No-Go assessment
 
     ## 1. INDUSTRY & MARKET ANALYSIS
-    Synthesize all industry research findings:
-    - Market size, trends, and opportunities
-    - Competitive landscape summary (key players and their positioning)
-    - Industry-specific challenges this project will face
-    - Best practices from successful similar projects
-    - Technology trends relevant to this project
-    - Strategic recommendations based on market analysis
+    (Include whatever research was conducted - or state "Based on project description")
 
     ## 2. PROJECT SCOPE & ARCHITECTURE
-    Consolidate all project analysis findings:
-    - Complete list of deliverables (organized by priority)
-    - Recommended technical architecture and stack
-    - System design considerations
-    - Integration requirements
-    - Non-functional requirements (performance, security, scalability)
-    - Success criteria and KPIs
-    - Scope boundaries (what's in, what's out)
+    (Comprehensive scope from project description + any research)
 
     ## 3. COMPREHENSIVE RISK ANALYSIS
-    Combine all identified risks into prioritized list:
-    - Group risks by category (Technical, Resource, Schedule, Business)
-    - For each HIGH-priority risk include:
-      * Description and potential impact
-      * Likelihood and severity
-      * Mitigation strategy
-      * Contingency plan
-      * Risk owner/responsibility
-    - Overall project risk level assessment
+    (15-25 risks prioritized by likelihood/impact)
 
     ## 4. DEPENDENCIES & CRITICAL PATH
-    Map out all critical dependencies:
-    - Technical dependencies (component ordering)
-    - Resource dependencies (team coordination needs)
-    - External dependencies (third-party services, APIs)
-    - Preliminary critical path identification
-    - Potential bottlenecks and constraints
+    (All identified dependencies)
 
     ## 5. TEAM ASSESSMENT & RECOMMENDATIONS
-    Synthesize team analysis findings:
-    - Team composition summary with skill breakdown
-    - Individual team member strengths and best-fit roles
-    - Skills gap analysis (what's missing)
-    - Hiring recommendations (if any, with specific roles)
-    - Training needs (prioritized)
-    - Recommended team structure and leadership
-    - Team capacity vs project requirements
-    - Team-related risks and mitigation
+    (Complete team analysis)
 
     ## 6. RESOURCE REQUIREMENTS
-    Consolidate all resource needs:
-    - Development resources (hours/weeks by role)
-    - Infrastructure and hosting requirements
-    - Tools, software licenses, and subscriptions
-    - Third-party services and APIs
-    - External consultants or contractors (if needed)
-    - Budget implications (high-level)
+    (Development, infrastructure, tools)
 
     ## 7. PROJECT READINESS ASSESSMENT
-    - Are requirements clear enough? (gaps to clarify)
-    - Is the team capable? (with or without additions)
-    - Is the timeline realistic? (preliminary assessment)
-    - Are there any blocking issues?
-    - What needs to be addressed before starting?
+    (Clear requirements? Capable team? Realistic timeline?)
 
     ## 8. RECOMMENDATIONS & NEXT STEPS
-    - Top 10 recommendations for project success
-    - Suggested project approach and methodology
-    - Phase 1 priorities
-    - Quick wins and early deliverables
-    - What to do in the first week
-    - Key decisions that need to be made
+    (Top 10 recommendations, Phase 1 priorities, first week checklist)
 
-    IMPORTANT INSTRUCTIONS:
-    - Do NOT summarize by removing details - include all important findings
-    - Keep specific numbers, dates, names, and examples from the research
-    - Organize information logically but comprehensively
-    - Use bullet points and clear structure for readability
-    - This should be a 3000-5000 word document
-    - Cross-reference between sections where findings relate
-    - Highlight critical insights and must-know information
+    IMPORTANT:
+    - Note in Executive Summary what level of research was conducted
+    - If minimal research used, emphasize that analysis is based on detailed project description
+    - Make document just as comprehensive regardless of research level
+    - Synthesize ALL available information effectively
+
+    OUTPUT: Complete 2000-4000 word foundation document
     """,
-    agent=project_research_summarize,
-    expected_output="""Complete project foundation document (3000-5000 words) with all 8 sections:
-    1. Executive summary with go/no-go assessment
-    2. Full industry analysis with market insights
-    3. Complete project scope with 10-30 deliverables
-    4. Comprehensive risk analysis (15-25 risks) with mitigation strategies
-    5. Dependencies and critical path mapping
-    6. Detailed team assessment with gaps and recommendations
-    7. Complete resource requirements
-    8. Project readiness assessment with top 10 recommendations
-
-    This document must be detailed enough to immediately start detailed project planning and task breakdown.
-    Include all specific findings, numbers, recommendations, and actionable insights from all research.""",
-    context=[industry_research_task, project_analysis_task, team_assessment_task],
+    agent=research_synthesizer,
+    expected_output="Complete project foundation document with all 8 sections, noting research level used",
+    context=[
+        evaluate_research_needs_task,
+        conditional_industry_research_task,
+        conditional_project_analysis_task,
+        team_assessment_task
+    ]
 )
 
 # ================================ Crew ================================
-research_crew = Crew(
+research_crew= Crew(
     agents=[
+        research_coordinator,
         industry_researcher,
         project_analyzer,
         team_assessor,
-        project_research_summarize,
+        research_synthesizer
     ],
     tasks=[
-        industry_research_task,
-        project_analysis_task,
+        evaluate_research_needs_task,
+        conditional_industry_research_task,
+        conditional_project_analysis_task,
         team_assessment_task,
-        project_research_summary_task,
+        research_synthesis_task
     ],
     verbose=True,
+    memory=False,
+    cache=False
 )

@@ -54,10 +54,6 @@ class CreateProjectSerializer(serializers.ModelSerializer):
         timeline_data = validated_data.pop('timeline')
         organization_id = validated_data.pop('organization_id')
 
-        print("validated data: ______", validated_data)
-        print("team members: ______", team_members_data)
-        print("timeline: ______", timeline_data)
-
         # Create Trello board
         board = trello_integration.create_board(
             validated_data['name'],
@@ -65,8 +61,8 @@ class CreateProjectSerializer(serializers.ModelSerializer):
             team_members_data
         )
 
-        # Invite team members to board
-        invite_team_members = trello_integration.invite_team_members(board['id'], team_members_data)
+        # Invite team members to board and get their Trello member IDs
+        member_mapping = trello_integration.invite_team_members(board['id'], team_members_data)
 
         # Get organization
         organization = Organization.objects.get(id=organization_id)
@@ -82,14 +78,16 @@ class CreateProjectSerializer(serializers.ModelSerializer):
             trello_board_id=board['id']
         )
 
-        # Optionally: Save team members to ProjectMember model
+        # Save team members to ProjectMember model with their Trello IDs
         for member_data in team_members_data:
+            trello_member_id = member_mapping.get(member_data['email'])
             ProjectMember.objects.create(
                 project=project,
                 name=member_data['name'],
                 email=member_data['email'],
                 role=member_data['role'],
-                skills=member_data['skills']
+                skills=member_data['skills'],
+                trello_member_id=trello_member_id  # Set the Trello ID from the mapping
             )
 
         return project
