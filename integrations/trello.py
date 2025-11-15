@@ -23,7 +23,7 @@ trello.set_token(getenv("TRELLO_API_TOKEN"))
 
 class TrelloIntegration:
     def create_board(self, board_name: str, description, team_members: list[TeamMember]):
-        board = trello.boards.new(name=board_name, desc=description,)
+        board = trello.boards.new(name=board_name, desc=description,defaultLists=None)
         # Invite all team members to the board
         # for member in team_members:
         #    memeber=  trello.boards.new_member(board.id, email=member.email, type="normal")
@@ -94,6 +94,7 @@ class TrelloIntegration:
     def create_label(self, card_id:str, label_name:str, color:str):
         label = trello.cards.new_label(card_id, name=label_name, color=color)
         return label
+
     def update_label(self, label_id:str, label_name:str, color:str):
         label = trello.cards.update_label(label_id, name=label_name, color=color)
         return label
@@ -106,3 +107,17 @@ class TrelloIntegration:
 
     def move_card_to_list(self, card_id:str, list_id:str):
       return  trello.cards.move_to_list(card_id, list_id)
+
+    def create_checklist(self, card_id:str, checklist_name:str):
+        checklist = trello.cards.new_checklist(card_id, name=checklist_name)
+        return checklist
+    def update_checklist(self, checklist_id:str, checklist_name:str):
+        checklist = trello.cards.update_checklist(checklist_id, name=checklist_name)
+        return checklist
+    def delete_checklist(self, checklist_id:str):
+        trello.cards.delete_checklist(checklist_id)
+    def add_item_to_checklist(self, checklist_id:str, item_name:str):
+        """Add an item to an existing checklist"""
+        item = trello.checklists.new_checkitem(checklist_id, name=item_name)
+        return item
+

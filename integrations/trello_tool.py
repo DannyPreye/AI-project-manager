@@ -409,6 +409,7 @@ class TrelloAddLabelToCardTool(BaseTool):
             return f"❌ Error adding label to card: {str(e)}"
 
 
+
 class TrelloRemoveLabelFromCardTool(BaseTool):
     name: str = "Remove Label from Card"
     description: str = """Removes a label from a card."""

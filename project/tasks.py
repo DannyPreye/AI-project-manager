@@ -17,7 +17,8 @@ def create_project(project_id: str):
             "name": member.name,
             "email": member.email,
             "role": member.role,
-            "skills": member.skills
+            "skills": member.skills,
+            "trello_member_id": member.trello_member_id
         }
         for member in team_members
     ]
@@ -27,7 +28,9 @@ def create_project(project_id: str):
     "industry": project.industry,
     "project_description": project.description,  # Changed from "description"
     "team_members": team_members_list,
-    "project_timeline": f"{project.start_date} to {project.end_date}",  # Changed from "timeline"
+    "project_timeline": f"{project.start_date} to {project.end_date}",
+    "board_id": project.trello_board_id,
+    "project_id": str(project.id)
 }
 
     # Use asyncio.run() to properly execute the async function

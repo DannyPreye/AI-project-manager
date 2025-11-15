@@ -1,14 +1,49 @@
 from crewai import Crew, Agent, Task, LLM
 from dotenv import load_dotenv
 from crewai_tools import ScrapeWebsiteTool, SerperDevTool
+from integrations.trello_tool import get_all_trello_tools
+from pydantic import BaseModel
 import os
 
 load_dotenv()
 
-llm = LLM(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
+trello_tools = get_all_trello_tools()
 
+llm = LLM(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
+class Label(BaseModel):
+   name: str
+   color: str
+
+class CardSpecification(BaseModel):
+   list_id: str
+   card_name: str
+   description: str
+   start_date: str
+   end_date: str
+   labels: list[Label]
+   checklist_items: list[str]
+
+
+class CardSpecifications(BaseModel):
+   card_specifications: list[CardSpecification]
 
 # ================================ Agents ================================
+
+trello_board_manager = Agent(
+    role="Trello Board Setup Manager",
+    goal="Create and organize Trello boards with proper list structure for project workflow",
+    backstory="""You are an expert at setting up Trello boards for software projects.
+    You create well-organized board structures with clear workflow stages. You understand
+    that a good board structure helps teams visualize progress and manage work efficiently.
+
+    IMPORTANT: After creating each list, you MUST extract and save the list ID from the
+    success message for use in subsequent tasks.""",
+    tools=trello_tools,
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
 task_generator = Agent(
     role="Task Breakdown Specialist",
     goal="Convert project analysis into detailed, actionable tasks with clear specifications",
@@ -86,334 +121,215 @@ planning_synthesizer = Agent(
 )
 
 # ================================ Tasks ================================
+create_board_structure_task = Task(
+    description="""
+    Create a Trello board structure by creating these lists in order:
+
+    Board ID: {board_id}
+
+    Use the "Create Trello List" tool to create each list with EXACT parameters:
+
+    1. board_id="{board_id}", list_name="Backlog", position=1
+    2. board_id="{board_id}", list_name="To Do", position=2
+    3. board_id="{board_id}", list_name="In Progress", position=3
+    4. board_id="{board_id}", list_name="Code Review", position=4
+    5. board_id="{board_id}", list_name="Testing", position=5
+    6. board_id="{board_id}", list_name="Done", position=6
+
+    AFTER creating ALL lists, extract each list ID from the success messages.
+
+    Success message format: "✅ Successfully created list 'To Do' (ID: 6731abc123456789)"
+    Extract: 6731abc123456789
+
+    Return ONLY a JSON object with the list IDs:
+    {{
+        "backlog_list_id": "extracted_id_1",
+        "todo_list_id": "extracted_id_2",
+        "in_progress_list_id": "extracted_id_3",
+        "review_list_id": "extracted_id_4",
+        "testing_list_id": "extracted_id_5",
+        "done_list_id": "extracted_id_6"
+    }}
+
+    DO NOT add explanatory text. ONLY return the JSON object.
+    """,
+    agent=trello_board_manager,
+    expected_output="JSON object containing all 6 list IDs with no additional text"
+)
+
+
 task_generation_task = Task(
     description="""
-    Break down the project into detailed, actionable tasks based on the research.
+    Break down the project into MODERATE-SIZED, manageable tasks.
 
-    Research Output: {research_output}
+    Project Description: {project_description}
+    research_output: {research_output}
 
-    Create 15-25 tasks that cover the entire project. For EACH task, provide:
+    TASK GRANULARITY RULES (BALANCED):
+    ❌ TOO BROAD: "Develop Core Backend API"
+    ❌ TOO GRANULAR: "Create user registration endpoint", "Create user login endpoint" (separate tasks)
+    ✅ JUST RIGHT: "Implement User Authentication System" (covers registration, login, JWT, password reset)
 
-    1. **title**: Clear, action-oriented (e.g., "Implement User Authentication API")
-    2. **description**: What needs to be built, technical specs, edge cases (2-3 sentences)
-    3. **acceptance_criteria**: List of 3-5 specific, testable criteria
-    4. **effort_hours**: Realistic estimate (4-40 hours per task)
-    5. **priority**: "Critical", "High", "Medium", or "Low"
-    6. **category**: "Backend", "Frontend", "Database", "DevOps", "Design", "Testing", or "Documentation"
-    7. **dependencies**: List of task titles that must be completed first (can be empty list)
-    8. **technical_requirements**: Specific files, APIs, or technologies needed
+    EXAMPLES OF GOOD TASK SIZING:
 
-    TASK CREATION RULES:
-    - Break large features into multiple small tasks (4-16 hours each)
-    - Each task should be completable by ONE person
-    - Be specific - avoid vague language
-    - Include setup, development, testing, and documentation tasks
-    - Ensure tasks can be worked on in parallel when possible
+    1. BACKEND (typically 8-12 tasks):
+       - "Setup Backend Project Structure & Dependencies"
+       - "Implement User Authentication System" (registration, login, JWT, password management)
+       - "Build User Profile Management" (CRUD, updates, preferences)
+       - "Create Product/Item Management API" (CRUD endpoints for main entities)
+       - "Implement Search & Filtering System"
+       - "Setup File Upload & Storage"
+       - "Build Notification System"
+       - "Implement Payment Integration" (if applicable)
 
-    OUTPUT FORMAT - MUST be valid JSON only, no additional text:
-    {{
-        "tasks": [
-            {{
-                "title": "Setup Development Environment",
-                "description": "Configure local environment with Node.js, React, PostgreSQL. Set up linting and Git hooks.",
-                "acceptance_criteria": [
-                    "All team members can run app locally",
-                    "ESLint and Prettier configured",
-                    "Git pre-commit hooks working"
-                ],
-                "effort_hours": 8,
-                "priority": "Critical",
-                "category": "DevOps",
-                "dependencies": [],
-                "technical_requirements": "Node.js 18+, PostgreSQL 14+, VS Code"
-            }},
-            {{
-                "title": "Design Database Schema",
-                "description": "Create PostgreSQL schema for users, projects, tasks. Include migrations and indexes.",
-                "acceptance_criteria": [
-                    "ER diagram created and reviewed",
-                    "All tables created with proper indexes",
-                    "Migration scripts tested"
-                ],
-                "effort_hours": 16,
-                "priority": "Critical",
-                "category": "Database",
-                "dependencies": ["Setup Development Environment"],
-                "technical_requirements": "PostgreSQL, Sequelize/Prisma ORM"
-            }}
-        ]
-    }}
+    2. FRONTEND (typically 8-12 tasks):
+       - "Setup Frontend Project & Routing"
+       - "Create Authentication UI" (login, register, forgot password pages)
+       - "Build Dashboard & Navigation"
+       - "Implement User Profile Pages"
+       - "Create Main Feature UI" (list, detail, create/edit forms)
+       - "Build Search & Filter Interface"
+       - "Implement Settings & Preferences UI"
+       - "Add Responsive Design & Mobile Optimization"
 
-    CRITICAL: Return ONLY the JSON object. NO explanatory text before or after.
-    Create 15-25 tasks minimum.
-    """,
-    agent=task_generator,
-    expected_output="Valid JSON object with 'tasks' array containing 15-25 task objects, each with all 8 required fields. NO additional text."
-)
+    3. DATABASE (typically 3-5 tasks):
+       - "Design & Implement Core Database Schema"
+       - "Create Database Migrations & Indexes"
+       - "Setup Database Relationships & Constraints"
+       - "Create Seed Data & Test Fixtures"
 
-timeline_planning_task = Task(
-    description="""
-    Create a project timeline with specific dates for all tasks.
+    4. DEVOPS (typically 3-5 tasks):
+       - "Setup Development Environment & Docker"
+       - "Configure CI/CD Pipeline"
+       - "Setup Production Deployment & Monitoring"
+       - "Implement Logging & Error Tracking"
 
-    Task List: {{output from previous task}}
+    5. TESTING (typically 3-4 tasks):
+       - "Write Backend Unit & Integration Tests"
+       - "Write Frontend Component Tests"
+       - "Create E2E Test Suite for Critical Flows"
 
-    Analyze the tasks and create a timeline that includes:
+    6. DOCUMENTATION (typically 2-3 tasks):
+       - "Create API Documentation & Postman Collection"
+       - "Write Setup & Deployment Guide"
+       - "Create User Documentation"
 
-    1. **Start and End Dates**: Assign specific dates (YYYY-MM-DD) to each task
-    2. **Sprint Organization**: Group tasks into 1-2 week sprints
-    3. **Milestones**: Identify 5-8 key project milestones with dates
-    4. **Critical Path**: List tasks that cannot be delayed
+    EACH TASK SHOULD:
+    - Take 3-7 days for one developer
+    - Cover a complete functional area (not a single endpoint/component)
+    - Have 4-6 clear acceptance criteria
+    - Be meaningful enough to show progress
 
-    SCHEDULING RULES:
-    - Respect task dependencies (dependent tasks start after prerequisites)
-    - Allow parallel work where tasks have no dependencies
-    - Assume 6 productive hours per day per person
-    - Add 15% buffer time for unknowns
-    - project timeline: {project_timeline}
+    GENERATE 20-30 TASKS for a complete project.
 
-
-    OUTPUT FORMAT - Valid JSON only:
-    {{
-        "project_start_date": "2025-11-15",
-        "project_end_date": "2026-01-31",
-        "total_duration_days": 77,
-        "sprints": [
-            {{
-                "sprint_number": 1,
-                "sprint_name": "Foundation & Setup",
-                "start_date": "2025-11-15",
-                "end_date": "2025-11-29",
-                "goal": "Complete environment setup and database design",
-                "task_titles": ["Setup Development Environment", "Design Database Schema"]
-            }}
-        ],
-        "milestones": [
-            {{
-                "name": "Development Environment Ready",
-                "date": "2025-11-16",
-                "deliverables": ["Local dev environment", "CI/CD pipeline"]
-            }}
-        ],
-        "critical_path": ["Setup Development Environment", "Design Database Schema", "Implement Authentication"],
-        "task_schedule": [
-            {{
-                "title": "Setup Development Environment",
-                "start_date": "2025-11-15",
-                "end_date": "2025-11-16",
-                "assigned_sprint": 1
-            }}
-        ]
-    }}
-
-    CRITICAL: Return ONLY the JSON object. NO explanatory text.
-    """,
-    agent=timeline_planner,
-    expected_output="Valid JSON object with project dates, sprints array, milestones array, critical_path array, and task_schedule array. NO additional text.",
-    context=[task_generation_task]
-)
-
-task_assignment_task = Task(
-    description="""
-    Assign tasks to team members based on their skills and balance workload.
-
-    Team Members: {team_members}
-    Tasks: {{output from task_generation_task}}
-
-    For each task, assign to the best team member considering:
-    - Skill match (does their expertise align with task requirements?)
-    - Workload balance (distribute hours evenly)
-    - Dependencies (same person for related tasks = better continuity)
-
-    Calculate team utilization:
-    - Total hours per person
-    - Utilization percentage (assume 6 productive hours/day)
-    - Identify if anyone is over/under-utilized
-
-    OUTPUT FORMAT - Valid JSON only:
-    {{
-        "assignments": [
-            {{
-                "task_title": "Setup Development Environment",
-                "assigned_to": "Alice Johnson",
-                "justification": "Full-stack developer with DevOps experience, familiar with Node.js and React setup",
-                "backup_assignee": "Carol Chen"
-            }}
-        ],
-        "team_utilization": [
-            {{
-                "member_name": "Alice Johnson",
-                "role": "Full Stack Developer",
-                "total_tasks": 8,
-                "total_hours": 96,
-                "utilization_percentage": 80,
-                "workload_status": "Well Balanced"
-            }}
-        ],
-        "skill_gaps": [
-            {{
-                "task_title": "Setup AWS Infrastructure",
-                "missing_skill": "AWS DevOps",
-                "recommendation": "Provide AWS training to Carol Chen or hire DevOps consultant"
-            }}
-        ]
-    }}
-
-    CRITICAL: Return ONLY the JSON object. NO explanatory text.
-    Ensure EVERY task is assigned to someone.
-    """,
-    agent=task_assigner,
-    expected_output="Valid JSON object with assignments array (one per task), team_utilization array, and skill_gaps array. NO additional text.",
-    context=[task_generation_task, timeline_planning_task]
-)
-
-planning_synthesis_task = Task(
-    description="""
-    Consolidate ALL planning outputs into one comprehensive project plan.
-
-    You have:
-    1. Tasks with details (from task_generation_task)
-    2. Timeline and sprints (from timeline_planning_task)
-    3. Team assignments (from task_assignment_task)
-
-    Create a COMPLETE consolidated plan that merges all information.
-
-    OUTPUT FORMAT - Valid JSON only:
-    {{
-        "executive_summary": {{
-            "project_name": "Extract from research",
-            "total_tasks": 20,
-            "total_estimated_hours": 320,
-            "project_duration_days": 77,
-            "project_start_date": "2025-11-15",
-            "project_end_date": "2026-01-31",
-            "number_of_sprints": 5,
-            "team_size": 3,
-            "key_milestones": 6
-        }},
-        "tasks": [
-            {{
-                "task_id": "T001",
-                "title": "Setup Development Environment",
-                "description": "Configure local dev environment...",
-                "acceptance_criteria": ["Criterion 1", "Criterion 2"],
-                "effort_hours": 8,
-                "priority": "Critical",
-                "category": "DevOps",
-                "dependencies": [],
-                "technical_requirements": "Node.js 18+, PostgreSQL",
-                "assigned_to": "Alice Johnson",
-                "assignment_justification": "Full-stack dev with DevOps experience",
-                "start_date": "2025-11-15",
-                "end_date": "2025-11-16",
-                "sprint_number": 1,
-                "status": "Not Started"
-            }}
-        ],
-        "sprints": [
-            {{
-                "sprint_number": 1,
-                "sprint_name": "Foundation & Setup",
-                "start_date": "2025-11-15",
-                "end_date": "2025-11-29",
-                "goal": "Complete environment and database setup",
-                "task_ids": ["T001", "T002"],
-                "team_members": ["Alice Johnson", "Carol Chen"]
-            }}
-        ],
-        "timeline": {{
-            "project_start_date": "2025-11-15",
-            "project_end_date": "2026-01-31",
-            "total_duration_days": 77,
-            "milestones": [
-                {{
-                    "name": "Development Environment Ready",
-                    "date": "2025-11-16",
-                    "deliverables": ["Local dev environment", "CI/CD pipeline"]
-                }}
-            ],
-            "critical_path": ["T001", "T002", "T003"]
-        }},
-        "team_assignments": [
-            {{
-                "member_name": "Alice Johnson",
-                "role": "Full Stack Developer",
-                "assigned_task_ids": ["T001", "T003"],
-                "total_tasks": 8,
-                "total_hours": 96,
-                "utilization_percentage": 80,
-                "workload_status": "Well Balanced"
-            }}
-        ],
-        "dependencies": [
-            {{
-                "task_id": "T002",
-                "depends_on": ["T001"],
-                "reason": "Database setup requires dev environment"
-            }}
-        ],
-        "risks": [
-            {{
-                "category": "Skill Gap",
-                "description": "No AWS expertise on team",
-                "mitigation": "Provide AWS training or hire consultant",
-                "priority": "Medium"
-            }}
-        ],
-        "execution_instructions": {{
-            "list_organization": "High priority tasks in 'To Do', others in 'Backlog'",
-            "label_scheme": {{
-                "priority_colors": {{
-                    "Critical": "red",
-                    "High": "orange",
-                    "Medium": "yellow",
-                    "Low": "green"
-                }},
-                "category_colors": {{
-                    "Backend": "blue",
-                    "Frontend": "purple",
-                    "Database": "sky",
-                    "DevOps": "lime",
-                    "Testing": "pink",
-                    "Documentation": "black"
-                }}
-            }},
-            "checklist_creation": "Use acceptance_criteria array for checklist items",
-            "special_notes": "Start with sprint 1 tasks in 'To Do', rest in 'Backlog'"
-        }}
-    }}
-
-    CRITICAL REQUIREMENTS:
-    1. Output ONLY valid JSON - NO explanatory text before or after
-    2. Include ALL tasks from task_generation (don't skip any)
-    3. Merge dates from timeline_planning into each task
-    4. Merge assignments from task_assignment into each task
-    5. Generate task IDs (T001, T002, etc.) for easy reference
-    6. Ensure dates are consistent across all sections
-    7. Every task must have start_date, end_date, and assigned_to
-
-    This output will be used directly by the execution crew to create Trello cards.
-    Make sure it's complete and properly formatted.
+    Output as JSON array of tasks with:
+    - task_id
+    - title (clear functional area, not too specific)
+    - description (what's included in this task)
+    - category (Backend/Frontend/Database/DevOps/Testing/Documentation)
+    - priority (Critical/High/Medium/Low)
+    - estimated_days (3-7 days realistic)
+    - acceptance_criteria (array of 4-6 criteria)
+    - dependencies (array of task_ids)
     """,
     agent=planning_synthesizer,
-    expected_output="""Complete consolidated project plan in valid JSON format with:
-    - executive_summary object
-    - tasks array (15-25 tasks with ALL fields merged)
-    - sprints array
-    - timeline object
-    - team_assignments array
-    - dependencies array
-    - risks array
-    - execution_instructions object
+    expected_output="JSON array of 20-30 moderate-sized tasks covering complete functional areas",
 
-    NO additional text outside the JSON object.""",
-    context=[task_generation_task, timeline_planning_task, task_assignment_task]
 )
 
 
 # ================================ Crew ================================
+card_specifications_task = Task(
+    description="""
+    Convert ALL tasks into Trello card specifications with complete details.
+
+    Task List from previous task: {output from task_generation_task}
+    List IDs from board structure: {output from create_board_structure_task}
+
+    STEP 1: EXTRACT LIST IDs FROM create_board_structure_task OUTPUT
+    Parse the JSON to get:
+    - todo_list_id (for Critical/High priority tasks)
+    - backlog_list_id (for Medium/Low priority tasks)
+
+    STEP 2: ANALYZE ALL TASKS
+    Go through EVERY task in the task list and count them.
+
+    STEP 3: CREATE CARD SPECIFICATION FOR EACH TASK
+    For EACH task, create a card specification with this EXACT format:
+    {{
+        "list_id": "[list_id from create_board_structure_task output]",
+        "card_name": "[task title]",
+        "description": "[task description with acceptance criteria]",
+        "start_date": "[YYYY-MM-DD - calculate from project timeline {project_timeline}]",
+        "end_date": "[YYYY-MM-DD - calculate from project timeline {project_timeline}]",
+        "labels": [
+            {{"name": "[priority level] Priority", "color": "[priority color]"}},
+            {{"name": "[category]", "color": "[category color]"}}
+        ],
+        "checklist_items": ["[acceptance criterion 1]", "[acceptance criterion 2]", ...]
+    }}
+
+    Label colors:
+    - Priority: Critical→red, High→orange, Medium→yellow, Low→green
+    - Category: Backend→blue, Frontend→purple, Database→sky, DevOps→lime, Testing→pink, Documentation→black
+
+    YOUR FINAL OUTPUT MUST BE A JSON OBJECT with a "card_specifications" field containing an array:
+    {{
+        "card_specifications": [
+            {{
+                "list_id": "6731abc123",
+                "card_name": "Setup Development Environment",
+                "description": "Configure local environment with Node.js, React, PostgreSQL. Set up linting and Git hooks.",
+                "start_date": "2025-11-15",
+                "end_date": "2025-11-16",
+                "labels": [
+                    {{"name": "Critical Priority", "color": "red"}},
+                    {{"name": "DevOps", "color": "lime"}}
+                ],
+                "checklist_items": [
+                    "All team members can run app locally",
+                    "ESLint and Prettier configured",
+                    "Git pre-commit hooks working"
+                ]
+            }},
+            {{
+                "list_id": "6731def456",
+                "card_name": "Design Database Schema",
+                "description": "Create PostgreSQL schema for users, projects, tasks. Include migrations and indexes.",
+                "start_date": "2025-11-17",
+                "end_date": "2025-11-19",
+                "labels": [
+                    {{"name": "High Priority", "color": "orange"}},
+                    {{"name": "Database", "color": "sky"}}
+                ],
+                "checklist_items": [
+                    "ER diagram created and reviewed",
+                    "All tables created with proper indexes",
+                    "Migration scripts tested"
+                ]
+            }}
+        ]
+    }}
+
+    CRITICAL REQUIREMENTS:
+    - Create specification for EVERY task in the task list
+    - Use ACTUAL list IDs from create_board_structure_task output
+    - Calculate realistic dates based on project timeline
+    - Each card must have at least 2 labels (priority + category)
+    - Each card must have 3-5 checklist items from acceptance criteria
+    - Output MUST be a JSON object with "card_specifications" field containing the array
+    - Output ONLY the JSON object, NO additional text
+    - Minimum 10 card specifications
+    """,
+    agent=planning_synthesizer,
+    expected_output="Valid JSON object with 'card_specifications' field containing an array of card specifications in the exact format specified, one for each task. Minimum 10 cards. NO additional text.",
+    context=[create_board_structure_task, task_generation_task],
+    output_json=CardSpecifications
+)
+
 planning_crew = Crew(
-    agents=[task_generator, timeline_planner, task_assigner, planning_synthesizer],
-    tasks=[task_generation_task, timeline_planning_task, task_assignment_task, planning_synthesis_task],
+    agents=[trello_board_manager, task_generator, timeline_planner, task_assigner, planning_synthesizer],
+    tasks=[create_board_structure_task, task_generation_task, card_specifications_task],
     verbose=True,
     memory=False,  # Disable memory for consistent behavior
     cache=False    # Disable cache for fresh execution
